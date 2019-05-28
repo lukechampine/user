@@ -1,4 +1,4 @@
-package main
+package main // import "lukechampine.com/user"
 
 import (
 	"context"
