@@ -16,9 +16,9 @@ import (
 	"lukechampine.com/us/renterhost"
 )
 
-func metainfo(m renter.MetaIndex, shards [][]renter.SectorSlice) {
+func metainfo(m *renter.MetaFile) {
 	var uploaded int64
-	for _, shard := range shards {
+	for _, shard := range m.Shards {
 		for _, s := range shard {
 			uploaded += int64(s.NumSegments * merkle.SegmentSize)
 		}

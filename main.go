@@ -42,7 +42,6 @@ Actions:
     migrate         migrate a file to different hosts
     tattle          submit a contract revision to the blockchain
     info            display info about a contract or file
-    recover         try to repair a corrupted metafile
 `
 	versionUsage = rootUsage
 	scanUsage    = `Usage:
@@ -223,12 +222,6 @@ transaction fee.
 
 Displays information about the specified contract or metafile.
 `
-	recoverUsage = `Usage:
-    user recover metafile
-
-Attempt to recover a metafile after a crash. Use this if you notice a
-directory with a _workdir suffix -- this indicates unclean shutdown.
-`
 	serveUsage = `Usage:
     user serve metafolder
 
@@ -343,7 +336,6 @@ func main() {
 	mRemote := migrateCmd.Bool("remote", false, mRemoteUsage)
 	tattleCmd := flagg.New("tattle", tattleUsage)
 	infoCmd := flagg.New("info", infoUsage)
-	recoverCmd := flagg.New("recover", recoverUsage)
 	serveCmd := flagg.New("serve", serveUsage)
 	sAddr := serveCmd.String("addr", ":8080", "HTTP service address")
 	mountCmd := flagg.New("mount", mountUsage)
@@ -368,7 +360,6 @@ func main() {
 			{Cmd: migrateCmd},
 			{Cmd: tattleCmd},
 			{Cmd: infoCmd},
-			{Cmd: recoverCmd},
 			{Cmd: serveCmd},
 			{Cmd: mountCmd},
 			{Cmd: convertCmd},
@@ -525,21 +516,13 @@ Define min_shards in your config file or supply the -m flag.`)
 			return
 		}
 
-		if index, shards, err := renter.ReadMetaFileContents(args[0]); err == nil {
-			metainfo(index, shards)
+		if m, err := renter.OpenMetaFile(args[0]); err == nil {
+			metainfo(m)
 		} else if h, err := renter.ReadContractRevision(args[0]); err == nil {
 			contractinfo(h)
 		} else {
 			log.Fatalln("Not a contract or metafile")
 		}
-
-	case recoverCmd:
-		if len(args) != 1 {
-			recoverCmd.Usage()
-			return
-		}
-		err := recoverMeta(args[0])
-		check("Recovery failed:", err)
 
 	case serveCmd:
 		if len(args) != 1 {
