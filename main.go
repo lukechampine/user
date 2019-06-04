@@ -516,7 +516,7 @@ Define min_shards in your config file or supply the -m flag.`)
 			return
 		}
 
-		if m, err := renter.OpenMetaFile(args[0]); err == nil {
+		if m, err := renter.ReadMetaFile(args[0]); err == nil {
 			metainfo(m)
 		} else if h, err := renter.ReadContractRevision(args[0]); err == nil {
 			contractinfo(h)

@@ -279,7 +279,7 @@ func checkupMeta(contractDir, metaPath string) error {
 	}
 	defer contracts.Close()
 
-	m, err := renter.OpenMetaFile(metaPath)
+	m, err := renter.ReadMetaFile(metaPath)
 	if err != nil {
 		return errors.Wrap(err, "could not load metafile")
 	}
@@ -305,7 +305,7 @@ func migrateFile(f *os.File, newContractsDir, metaPath string) error {
 	}
 	defer newcontracts.Close()
 
-	m, err := renter.OpenMetaFile(metaPath)
+	m, err := renter.ReadMetaFile(metaPath)
 	if err != nil {
 		return errors.Wrap(err, "could not load metafile")
 	}
@@ -350,7 +350,7 @@ func migrateDirect(allContractsDir, newContractsDir, metaPath string) error {
 	}
 	defer newcontracts.Close()
 
-	m, err := renter.OpenMetaFile(metaPath)
+	m, err := renter.ReadMetaFile(metaPath)
 	if err != nil {
 		return errors.Wrap(err, "could not load metafile")
 	}
@@ -401,7 +401,7 @@ func migrateRemote(newContractsDir, metaPath string) error {
 	}
 	defer newcontracts.Close()
 
-	m, err := renter.OpenMetaFile(metaPath)
+	m, err := renter.ReadMetaFile(metaPath)
 	if err != nil {
 		return errors.Wrap(err, "could not load metafile")
 	}
