@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"gitlab.com/NebulousLabs/Sia/types"
 	"lukechampine.com/us/merkle"
 	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/renterutil"
@@ -58,6 +59,14 @@ func closeMetaFile(m *renter.MetaFile) {
 	}
 }
 
+func makeHostSet(contracts renter.ContractSet, client limitedClient, currentHeight types.BlockHeight) *renterutil.HostSet {
+	hs := renterutil.NewHostSet(client, currentHeight)
+	for _, c := range contracts {
+		hs.AddHost(c)
+	}
+	return hs
+}
+
 func uploadmetafile(f *os.File, minShards int, contractDir, metaPath string) error {
 	contracts, err := renter.LoadContracts(contractDir)
 	if err != nil {
@@ -80,7 +89,7 @@ func uploadmetafile(f *os.File, minShards int, contractDir, metaPath string) err
 	}
 
 	dir, name := filepath.Dir(metaPath), strings.TrimSuffix(filepath.Base(metaPath), ".usa")
-	fs := renterutil.NewFileSystem(dir, contracts, c, currentHeight)
+	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, c, currentHeight))
 	defer fs.Close()
 	pf, err := fs.OpenFile(name, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, stat.Mode(), minShards)
 	if err != nil {
@@ -105,7 +114,7 @@ func uploadmetadir(dir, metaDir, contractDir string, minShards int) error {
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	fs := renterutil.NewFileSystem(metaDir, contracts, c, currentHeight)
+	fs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, c, currentHeight))
 	defer fs.Close()
 
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -143,7 +152,7 @@ func resumeuploadmetafile(f *os.File, contractDir, metaPath string) error {
 	}
 
 	dir, name := filepath.Dir(metaPath), strings.TrimSuffix(filepath.Base(metaPath), ".usa")
-	fs := renterutil.NewFileSystem(dir, contracts, c, currentHeight)
+	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, c, currentHeight))
 	defer fs.Close()
 	pf, err := fs.OpenFile(name, os.O_APPEND, 0, 0)
 	if err != nil {
@@ -202,7 +211,7 @@ func downloadmetafile(f *os.File, contractDir, metaPath string) error {
 	defer contracts.Close()
 
 	dir, name := filepath.Dir(metaPath), strings.TrimSuffix(filepath.Base(metaPath), ".usa")
-	fs := renterutil.NewFileSystem(dir, contracts, makeLimitedClient(), 0)
+	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, makeLimitedClient(), 0))
 	defer fs.Close()
 	pf, err := fs.Open(name)
 	if err != nil {
@@ -223,7 +232,7 @@ func downloadmetastream(w io.Writer, contractDir, metaPath string) error {
 	defer contracts.Close()
 
 	dir, name := filepath.Dir(metaPath), strings.TrimSuffix(filepath.Base(metaPath), ".usa")
-	fs := renterutil.NewFileSystem(dir, contracts, makeLimitedClient(), 0)
+	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, makeLimitedClient(), 0))
 	defer fs.Close()
 	pf, err := fs.Open(name)
 	if err != nil {
@@ -249,7 +258,7 @@ func downloadmetadir(dir, contractDir, metaDir string) error {
 		return errors.Wrap(err, "could not load contracts")
 	}
 	defer contracts.Close()
-	fs := renterutil.NewFileSystem(metaDir, contracts, makeLimitedClient(), 0)
+	fs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, makeLimitedClient(), 0))
 	defer fs.Close()
 
 	return filepath.Walk(metaDir, func(metaPath string, info os.FileInfo, err error) error {

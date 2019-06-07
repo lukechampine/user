@@ -24,7 +24,7 @@ func serve(contractDir, metaDir, addr string) error {
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	pfs := renterutil.NewFileSystem(metaDir, contracts, c, currentHeight)
+	pfs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, c, currentHeight))
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: http.FileServer(&httpFS{pfs}),

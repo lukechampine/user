@@ -28,7 +28,7 @@ func mount(contractDir, metaDir, mountDir string, minShards int) error {
 	if err != nil {
 		return err
 	}
-	pfs := renterutil.NewFileSystem(metaDir, contracts, c, currentHeight)
+	pfs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, c, currentHeight))
 	nfs := pathfs.NewPathNodeFs(fileSystem(pfs, minShards), nil)
 	server, _, err := nodefs.MountRoot(mountDir, nfs.Root(), nil)
 	if err != nil {
