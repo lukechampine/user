@@ -177,9 +177,18 @@ func form(hostKeyPrefix string, funds types.Currency, end string, filename strin
 		return err
 	}
 
-	if filename == "" {
-		filename = contractName(contract)
+	if filename != "" {
+		err = renter.SaveContract(contract, key, filename)
+		if err != nil {
+			return errors.Wrap(err, "could not save contract")
+		}
+		fmt.Println("Wrote contract to", filename)
+		fmt.Println("WARNING: because you specified a filename, this contract has not been enabled.")
+		fmt.Printf("To enable this contract, you must run 'user contracts enable %v'\nor create a symlink in %v manually.\n", hostKey.ShortKey(), config.ContractsEnabled)
+		return nil
 	}
+
+	filename = contractName(contract)
 	allPath := filepath.Join(config.ContractsAvailable, filename)
 	activePath := filepath.Join(config.ContractsEnabled, filename)
 	err = renter.SaveContract(contract, key, allPath)
@@ -197,7 +206,6 @@ func form(hostKeyPrefix string, funds types.Currency, end string, filename strin
 		fmt.Println("Enabled contract by creating", activePath)
 		fmt.Printf("To disable this contract, run 'user contracts disable %v'\nor delete the symlink in %v manually.\n", hostKey.ShortKey(), config.ContractsEnabled)
 	}
-
 	return nil
 }
 
@@ -254,9 +262,19 @@ func renew(contractPath string, funds types.Currency, end string, filename strin
 		return errors.Wrap(err, "could not renew contract")
 	}
 
-	if filename == "" {
-		filename = filepath.Join(config.ContractsAvailable, contractName(newContract))
+	if filename != "" {
+		err = renter.SaveRenewedContract(uc, newContract, filename)
+		if err != nil {
+			return errors.Wrap(err, "could not save renewed contract")
+		}
+		fmt.Println("Wrote contract to", filename)
+		fmt.Println("WARNING: because you specified a filename, this contract has not been enabled, and the old contract has not been disabled,")
+		fmt.Printf("To enable this contract, you must run 'user contracts enable %v'\nor create a symlink in %v manually.\n", host.PublicKey.ShortKey(), config.ContractsEnabled)
+		fmt.Println("To disable the old contract, move it to a different folder.")
+		return nil
 	}
+
+	filename = filepath.Join(config.ContractsAvailable, contractName(newContract))
 	allPath := filepath.Join(config.ContractsAvailable, filename)
 	activePath := filepath.Join(config.ContractsEnabled, filename)
 	err = renter.SaveRenewedContract(uc, newContract, filename)
