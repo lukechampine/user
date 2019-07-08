@@ -12,7 +12,7 @@ import (
 
 	"github.com/pkg/errors"
 	"gitlab.com/NebulousLabs/Sia/types"
-	"gitlab.com/NebulousLabs/fastrand"
+	"lukechampine.com/frand"
 	"lukechampine.com/us/ed25519"
 	"lukechampine.com/us/hostdb"
 	"lukechampine.com/us/renter"
@@ -171,7 +171,7 @@ func form(hostKeyPrefix string, funds types.Currency, end string, filename strin
 	}
 
 	// generate our contract key and execute the protocol
-	key := ed25519.NewKeyFromSeed(fastrand.Bytes(32))
+	key := ed25519.NewKeyFromSeed(frand.Bytes(32))
 	contract, err := proto.FormContract(c, c, key, host, funds, currentHeight, endHeight)
 	if err != nil {
 		return err
