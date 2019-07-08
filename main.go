@@ -375,7 +375,7 @@ func main() {
 		}
 		fallthrough
 	case versionCmd:
-		log.Printf("user v0.4.0\nCommit:     %s\nRelease:    %s\nGo version: %s %s/%s\nBuild Date: %s\n",
+		log.Printf("user v0.5.0\nCommit:     %s\nRelease:    %s\nGo version: %s %s/%s\nBuild Date: %s\n",
 			githash, build.Release, runtime.Version(), runtime.GOOS, runtime.GOARCH, builddate)
 
 	case scanCmd:
