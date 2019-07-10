@@ -5,7 +5,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -278,9 +277,7 @@ func makeClient() fullClient {
 	}
 	if config.SiadPassword == "" {
 		// attempt to read the standard siad password file
-		user, err := user.Current()
-		check("Could not locate siad password file:", err)
-		pw, err := ioutil.ReadFile(filepath.Join(user.HomeDir, ".sia", "apipassword"))
+		pw, err := ioutil.ReadFile(filepath.Join(build.DefaultSiaDir(), "apipassword"))
 		check("Could not read siad password file:", err)
 		config.SiadPassword = strings.TrimSpace(string(pw))
 	}
