@@ -154,7 +154,7 @@ func resumeuploadmetafile(f *os.File, contractDir, metaPath string) error {
 	dir, name := filepath.Dir(metaPath), strings.TrimSuffix(filepath.Base(metaPath), ".usa")
 	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, c, currentHeight))
 	defer fs.Close()
-	pf, err := fs.OpenFile(name, os.O_APPEND, 0, 0)
+	pf, err := fs.OpenFile(name, os.O_WRONLY|os.O_APPEND, 0, 0)
 	if err != nil {
 		return err
 	}
