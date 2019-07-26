@@ -96,7 +96,10 @@ func uploadmetafile(f *os.File, minShards int, contractDir, metaPath string) err
 		return err
 	}
 	defer pf.Close()
-	return trackUpload(pf, f)
+	if err := trackUpload(pf, f); err != nil {
+		return err
+	}
+	return fs.Close()
 }
 
 func uploadmetadir(dir, metaDir, contractDir string, minShards int) error {
@@ -117,7 +120,7 @@ func uploadmetadir(dir, metaDir, contractDir string, minShards int) error {
 	fs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, c, currentHeight))
 	defer fs.Close()
 
-	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() || err != nil {
 			return fs.MkdirAll(path, 0700)
 		}
@@ -133,6 +136,10 @@ func uploadmetadir(dir, metaDir, contractDir string, minShards int) error {
 		defer f.Close()
 		return trackUpload(pf, f)
 	})
+	if err != nil {
+		return err
+	}
+	return fs.Close()
 }
 
 func resumeuploadmetafile(f *os.File, contractDir, metaPath string) error {
@@ -163,7 +170,10 @@ func resumeuploadmetafile(f *os.File, contractDir, metaPath string) error {
 	if _, err := f.Seek(stat.Size(), io.SeekStart); err != nil {
 		return err
 	}
-	return trackUpload(pf, f)
+	if err := trackUpload(pf, f); err != nil {
+		return err
+	}
+	return fs.Close()
 }
 
 func resumedownload(f *os.File, metaPath string, pf *renterutil.PseudoFile) error {
@@ -218,7 +228,10 @@ func downloadmetafile(f *os.File, contractDir, metaPath string) error {
 		return err
 	}
 	defer pf.Close()
-	return resumedownload(f, metaPath, pf)
+	if err := resumedownload(f, metaPath, pf); err != nil {
+		return err
+	}
+	return fs.Close()
 }
 
 func downloadmetastream(w io.Writer, contractDir, metaPath string) error {
@@ -249,7 +262,10 @@ func downloadmetastream(w io.Writer, contractDir, metaPath string) error {
 
 	buf := make([]byte, renterhost.SectorSize*index.MinShards)
 	_, err = io.CopyBuffer(w, pf, buf)
-	return err
+	if err != nil {
+		return err
+	}
+	return fs.Close()
 }
 
 func downloadmetadir(dir, contractDir, metaDir string) error {
@@ -261,7 +277,7 @@ func downloadmetadir(dir, contractDir, metaDir string) error {
 	fs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, makeLimitedClient(), 0))
 	defer fs.Close()
 
-	return filepath.Walk(metaDir, func(metaPath string, info os.FileInfo, err error) error {
+	err = filepath.Walk(metaDir, func(metaPath string, info os.FileInfo, err error) error {
 		if info.IsDir() || err != nil {
 			return nil
 		}
@@ -279,6 +295,10 @@ func downloadmetadir(dir, contractDir, metaDir string) error {
 		}
 		return resumedownload(f, metaPath, pf)
 	})
+	if err != nil {
+		return err
+	}
+	return fs.Close()
 }
 
 func checkupMeta(contractDir, metaPath string) error {
