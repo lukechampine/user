@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -43,5 +44,15 @@ func loadConfig() error {
 	if config.ContractsEnabled == "" {
 		config.ContractsEnabled = filepath.Join(defaultDir, "contracts-enabled")
 	}
+	// expand ~ to $HOME
+	expandHome := func(path string) string {
+		path = filepath.Clean(path)
+		if strings.HasPrefix(path, "~") {
+			path = user.HomeDir + path[1:]
+		}
+		return path
+	}
+	config.ContractsAvailable = expandHome(config.ContractsAvailable)
+	config.ContractsEnabled = expandHome(config.ContractsEnabled)
 	return nil
 }
