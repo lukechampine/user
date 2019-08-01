@@ -237,6 +237,13 @@ Mount metafolder as a read-only FUSE filesystem, rooted at folder.
 Converts a v1 contract to v2. If conversion fails, the v1 contract is not
 affected.
 `
+	gcUsage = `Usage:
+    user gc metafolder
+
+Runs a "garbage collection cycle," which deletes any sectors not referenced
+by the metafiles in the specified folder. Metafiles outside this folder may
+become unavailable, so exercise caution before running this command!
+`
 )
 
 var usage = flagg.SimpleUsage(flagg.Root, rootUsage) // point-free style!
@@ -338,6 +345,7 @@ func main() {
 	mountCmd := flagg.New("mount", mountUsage)
 	mountCmd.IntVar(&config.MinShards, "m", config.MinShards, "minimum number of shards required to download files")
 	convertCmd := flagg.New("convert", convertUsage)
+	gcCmd := flagg.New("gc", gcUsage)
 
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
@@ -360,6 +368,7 @@ func main() {
 			{Cmd: serveCmd},
 			{Cmd: mountCmd},
 			{Cmd: convertCmd},
+			{Cmd: gcCmd},
 		},
 	})
 	args := cmd.Args()
@@ -547,5 +556,12 @@ Define min_shards in your config file or supply the -m flag.`)
 			return
 		}
 		check("Conversion failed:", renter.ConvertContract(args[0]))
+
+	case gcCmd:
+		if len(args) != 1 {
+			gcCmd.Usage()
+			return
+		}
+		check("Garbage collection failed:", deleteUnreferencedSectors(config.ContractsEnabled, args[0]))
 	}
 }
