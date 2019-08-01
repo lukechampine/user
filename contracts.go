@@ -24,7 +24,7 @@ import (
 const contractExt = ".contract"
 
 func contractinfo(contract proto.ContractRevision) {
-	c := makeClient()
+	c := makeLimitedClient()
 	var remaining string
 	if height, err := c.ChainHeight(); err == nil {
 		if height <= contract.EndHeight() {
@@ -103,6 +103,11 @@ func listcontracts() error {
 			funds:     rev.RenterFunds(),
 		})
 	}
+	if len(entries) == 0 {
+		fmt.Println("No contracts found")
+		return nil
+	}
+
 	// sort by Enabled, then alphabetically by host
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].enabled != entries[j].enabled {

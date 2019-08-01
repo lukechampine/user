@@ -329,10 +329,10 @@ if you create `bar/foo.txt` in `mnt`, then `bar/foo.txt.usa` will appear in
 `metadir`.
 
 Unlike most `user` commands, `mount` will remain running until you stop it with
-Ctrl-C. Don't kill it suddenly (e.g. by turning of your computer) or you will
+Ctrl-C. Don't kill it suddenly (e.g. by turning off your computer) or you will
 almost certainly lose data. If you do experience an unclean shutdown, you may
-encounter errors accessing the folder later. To fix this, run `fusermount` on
-the `mnt` directory to forcibly unmount it.
+encounter errors accessing the folder later. To fix this, run `fusermount -u`
+on the `mnt` directory to forcibly unmount it.
 
 
 ### Downloading over HTTP
