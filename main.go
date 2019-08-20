@@ -295,11 +295,6 @@ type walrusSHARD struct {
 	*renterutil.SHARDClient
 }
 
-// TODO: add truncated host key lookup to SHARD
-func (walrusSHARD) Hosts() ([]hostdb.HostPublicKey, error) {
-	return nil, errors.New("SHARD requires full-length host public keys")
-}
-
 func makeClient() fullClient {
 	// fullClient can be implemented by either siad or SHARD+walrus
 	if config.SHARDAddr != "" && config.WalrusAddr != "" {
