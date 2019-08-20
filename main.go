@@ -2,6 +2,7 @@ package main // import "lukechampine.com/user"
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -14,11 +15,13 @@ import (
 	"github.com/pkg/errors"
 	"gitlab.com/NebulousLabs/Sia/build"
 	"gitlab.com/NebulousLabs/Sia/types"
+	"golang.org/x/crypto/ssh/terminal"
 	"lukechampine.com/flagg"
 	"lukechampine.com/us/hostdb"
 	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/proto"
 	"lukechampine.com/us/renter/renterutil"
+	"lukechampine.com/us/wallet"
 )
 
 var (
@@ -254,6 +257,26 @@ func check(ctx string, err error) {
 	}
 }
 
+func getSeed() wallet.Seed {
+	phrase := os.Getenv("WALRUS_SEED")
+	if phrase != "" {
+		fmt.Println("Using WALRUS_SEED environment variable")
+	} else {
+		fmt.Print("Seed: ")
+		pw, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			log.Fatal("Could not read seed phrase:", err)
+		}
+		fmt.Println()
+		phrase = string(pw)
+	}
+	seed, err := wallet.SeedFromPhrase(phrase)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return seed
+}
+
 type limitedClient interface {
 	Synced() (bool, error)
 	ChainHeight() (types.BlockHeight, error)
@@ -280,7 +303,7 @@ func (walrusSHARD) Hosts() ([]hostdb.HostPublicKey, error) {
 func makeClient() fullClient {
 	// fullClient can be implemented by either siad or SHARD+walrus
 	if config.SHARDAddr != "" && config.WalrusAddr != "" {
-		return walrusSHARD{renterutil.NewWalrusClient(config.WalrusAddr), renterutil.NewSHARDClient(config.SHARDAddr)}
+		return walrusSHARD{renterutil.NewWalrusClient(config.WalrusAddr, getSeed()), renterutil.NewSHARDClient(config.SHARDAddr)}
 	}
 	if config.SiadPassword == "" {
 		// attempt to read the standard siad password file
