@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -53,33 +52,21 @@ func filesizeUnits(size int64) string {
 	return fmt.Sprintf("%.*f %s", i, float64(size)/math.Pow10(3*i), sizes[i])
 }
 
-func closeMetaFile(m *renter.MetaFile) {
-	if err := m.Close(); err != nil {
-		log.Println("ERROR: could not create metafile archive:", err)
-	}
-}
-
-func makeHostSet(contracts renter.ContractSet, client limitedClient, currentHeight types.BlockHeight) *renterutil.HostSet {
-	hs := renterutil.NewHostSet(client, currentHeight)
+func makeHostSet(contracts renter.ContractSet, hkr renter.HostKeyResolver, currentHeight types.BlockHeight) *renterutil.HostSet {
+	hs := renterutil.NewHostSet(hkr, currentHeight)
 	for _, c := range contracts {
 		hs.AddHost(c)
 	}
 	return hs
 }
 
-func uploadmetafile(f *os.File, minShards int, contractDir, metaPath string) error {
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
-
+func uploadmetafile(f *os.File, minShards int, contracts renter.ContractSet, metaPath string) error {
 	stat, err := f.Stat()
 	if err != nil {
 		return errors.Wrap(err, "could not stat file")
 	}
 
-	c := makeLimitedClient()
+	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
 	}
@@ -102,14 +89,8 @@ func uploadmetafile(f *os.File, minShards int, contractDir, metaPath string) err
 	return fs.Close()
 }
 
-func uploadmetadir(dir, metaDir, contractDir string, minShards int) error {
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
-
-	c := makeLimitedClient()
+func uploadmetadir(dir, metaDir string, contracts renter.ContractSet, minShards int) error {
+	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
 	}
@@ -121,10 +102,11 @@ func uploadmetadir(dir, metaDir, contractDir string, minShards int) error {
 	defer fs.Close()
 
 	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		fsPath, _ := filepath.Rel(dir, path)
 		if info.IsDir() || err != nil {
-			return fs.MkdirAll(path, 0700)
+			return fs.MkdirAll(fsPath, 0700)
 		}
-		pf, err := fs.Create(path, minShards)
+		pf, err := fs.Create(fsPath, minShards)
 		if err != nil {
 			return err
 		}
@@ -142,14 +124,8 @@ func uploadmetadir(dir, metaDir, contractDir string, minShards int) error {
 	return fs.Close()
 }
 
-func resumeuploadmetafile(f *os.File, contractDir, metaPath string) error {
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
-
-	c := makeLimitedClient()
+func resumeuploadmetafile(f *os.File, contracts renter.ContractSet, metaPath string) error {
+	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
 	}
@@ -210,18 +186,13 @@ func resumedownload(f *os.File, metaPath string, pf *renterutil.PseudoFile) erro
 	return trackDownload(f, pf, offset)
 }
 
-func downloadmetafile(f *os.File, contractDir, metaPath string) error {
+func downloadmetafile(f *os.File, contracts renter.ContractSet, metaPath string) error {
 	if ok, err := renter.MetaFileCanDownload(metaPath); err == nil && !ok {
 		return errors.New("file is not sufficiently uploaded")
 	}
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
 
 	dir, name := filepath.Dir(metaPath), strings.TrimSuffix(filepath.Base(metaPath), ".usa")
-	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, makeLimitedClient(), 0))
+	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, makeSHARDClient(), 0))
 	defer fs.Close()
 	pf, err := fs.Open(name)
 	if err != nil {
@@ -234,18 +205,13 @@ func downloadmetafile(f *os.File, contractDir, metaPath string) error {
 	return fs.Close()
 }
 
-func downloadmetastream(w io.Writer, contractDir, metaPath string) error {
+func downloadmetastream(w io.Writer, contracts renter.ContractSet, metaPath string) error {
 	if ok, err := renter.MetaFileCanDownload(metaPath); err == nil && !ok {
 		return errors.New("file is not sufficiently uploaded")
 	}
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
 
 	dir, name := filepath.Dir(metaPath), strings.TrimSuffix(filepath.Base(metaPath), ".usa")
-	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, makeLimitedClient(), 0))
+	fs := renterutil.NewFileSystem(dir, makeHostSet(contracts, makeSHARDClient(), 0))
 	defer fs.Close()
 	pf, err := fs.Open(name)
 	if err != nil {
@@ -268,16 +234,11 @@ func downloadmetastream(w io.Writer, contractDir, metaPath string) error {
 	return fs.Close()
 }
 
-func downloadmetadir(dir, contractDir, metaDir string) error {
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
-	fs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, makeLimitedClient(), 0))
+func downloadmetadir(dir string, contracts renter.ContractSet, metaDir string) error {
+	fs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, makeSHARDClient(), 0))
 	defer fs.Close()
 
-	err = filepath.Walk(metaDir, func(metaPath string, info os.FileInfo, err error) error {
+	err := filepath.Walk(metaDir, func(metaPath string, info os.FileInfo, err error) error {
 		if info.IsDir() || err != nil {
 			return nil
 		}
@@ -301,20 +262,13 @@ func downloadmetadir(dir, contractDir, metaDir string) error {
 	return fs.Close()
 }
 
-func checkupMeta(contractDir, metaPath string) error {
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
-
+func checkupMeta(contracts renter.ContractSet, metaPath string) error {
 	m, err := renter.ReadMetaFile(metaPath)
 	if err != nil {
 		return errors.Wrap(err, "could not load metafile")
 	}
-	defer closeMetaFile(m)
 
-	c := makeLimitedClient()
+	c := makeSHARDClient()
 	for r := range renterutil.Checkup(contracts, m, c) {
 		if r.Error != nil {
 			fmt.Printf("FAIL Host %v:\n\t%v\n", r.Host.ShortKey(), r.Error)
@@ -327,20 +281,13 @@ func checkupMeta(contractDir, metaPath string) error {
 	return nil
 }
 
-func migrateFile(f *os.File, newContractsDir, metaPath string) error {
-	newcontracts, err := renter.LoadContracts(newContractsDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer newcontracts.Close()
-
+func migrateFile(f *os.File, contracts renter.ContractSet, metaPath string) error {
 	m, err := renter.ReadMetaFile(metaPath)
 	if err != nil {
 		return errors.Wrap(err, "could not load metafile")
 	}
-	defer closeMetaFile(m)
 
-	c := makeLimitedClient()
+	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
 	}
@@ -348,18 +295,12 @@ func migrateFile(f *os.File, newContractsDir, metaPath string) error {
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	op := renterutil.MigrateFile(f, newcontracts, m, c, currentHeight)
+	op := renterutil.MigrateFile(f, contracts, m, c, currentHeight)
 	return trackMigrateFile(metaPath, op)
 }
 
-func migrateDirFile(dir, newContractsDir, metaDir string) error {
-	newcontracts, err := renter.LoadContracts(newContractsDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer newcontracts.Close()
-
-	c := makeLimitedClient()
+func migrateDirFile(dir string, contracts renter.ContractSet, metaDir string) error {
+	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
 	}
@@ -368,30 +309,17 @@ func migrateDirFile(dir, newContractsDir, metaDir string) error {
 		return errors.Wrap(err, "could not determine current height")
 	}
 	metafileIter := renterutil.NewRecursiveMetaFileIter(metaDir, dir)
-	op := renterutil.MigrateDirFile(newcontracts, metafileIter, c, currentHeight)
+	op := renterutil.MigrateDirFile(contracts, metafileIter, c, currentHeight)
 	return trackMigrateDir(op)
 }
 
-func migrateDirect(allContractsDir, newContractsDir, metaPath string) error {
-	newcontracts, err := renter.LoadContracts(newContractsDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer newcontracts.Close()
-
+func migrateRemote(contracts renter.ContractSet, metaPath string) error {
 	m, err := renter.ReadMetaFile(metaPath)
 	if err != nil {
 		return errors.Wrap(err, "could not load metafile")
 	}
-	defer closeMetaFile(m)
 
-	oldcontracts, err := loadMetaContracts(m, allContractsDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer oldcontracts.Close()
-
-	c := makeLimitedClient()
+	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
 	}
@@ -399,18 +327,12 @@ func migrateDirect(allContractsDir, newContractsDir, metaPath string) error {
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	op := renterutil.MigrateDirect(newcontracts, oldcontracts, m, c, currentHeight)
+	op := renterutil.MigrateRemote(contracts, m, c, currentHeight)
 	return trackMigrateFile(metaPath, op)
 }
 
-func migrateDirDirect(allContractsDir, newContractsDir, metaDir string) error {
-	newcontracts, err := renter.LoadContracts(newContractsDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer newcontracts.Close()
-
-	c := makeLimitedClient()
+func migrateDirRemote(contracts renter.ContractSet, metaDir string) error {
+	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
 	}
@@ -418,58 +340,7 @@ func migrateDirDirect(allContractsDir, newContractsDir, metaDir string) error {
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	fileIter := renterutil.NewRecursiveMigrateDirIter(metaDir, allContractsDir)
-	op := renterutil.MigrateDirDirect(newcontracts, fileIter, c, currentHeight)
-	return trackMigrateDir(op)
-}
-
-func migrateRemote(newContractsDir, metaPath string) error {
-	newcontracts, err := renter.LoadContracts(newContractsDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer newcontracts.Close()
-
-	m, err := renter.ReadMetaFile(metaPath)
-	if err != nil {
-		return errors.Wrap(err, "could not load metafile")
-	}
-	defer closeMetaFile(m)
-
-	oldcontracts, err := loadMetaContracts(m, newContractsDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer oldcontracts.Close()
-
-	c := makeLimitedClient()
-	if synced, err := c.Synced(); !synced && err == nil {
-		return errors.New("blockchain is not synchronized")
-	}
-	currentHeight, err := c.ChainHeight()
-	if err != nil {
-		return errors.Wrap(err, "could not determine current height")
-	}
-	op := renterutil.MigrateRemote(newcontracts, oldcontracts, m, c, currentHeight)
-	return trackMigrateFile(metaPath, op)
-}
-
-func migrateDirRemote(newContractsDir, metaDir string) error {
-	newcontracts, err := renter.LoadContracts(newContractsDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer newcontracts.Close()
-
-	c := makeLimitedClient()
-	if synced, err := c.Synced(); !synced && err == nil {
-		return errors.New("blockchain is not synchronized")
-	}
-	currentHeight, err := c.ChainHeight()
-	if err != nil {
-		return errors.Wrap(err, "could not determine current height")
-	}
-	fileIter := renterutil.NewRecursiveMigrateDirIter(metaDir, newContractsDir)
-	op := renterutil.MigrateDirRemote(newcontracts, fileIter, c, currentHeight)
+	fileIter := renterutil.NewRecursiveMigrateDirIter(metaDir)
+	op := renterutil.MigrateDirRemote(contracts, fileIter, c, currentHeight)
 	return trackMigrateDir(op)
 }

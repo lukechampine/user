@@ -12,16 +12,12 @@ import (
 	"lukechampine.com/us/hostdb"
 	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/proto"
+	"lukechampine.com/us/renter/renterutil"
 	"lukechampine.com/us/renterhost"
 )
 
-func deleteUnreferencedSectors(contractDir, metaDir string) error {
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
-	c := makeLimitedClient()
+func deleteUnreferencedSectors(contracts renter.ContractSet, metaDir string) error {
+	c := makeSHARDClient()
 	currentHeight, err := c.ChainHeight()
 	if err != nil {
 		return errors.Wrap(err, "could not get current height")
@@ -31,16 +27,16 @@ func deleteUnreferencedSectors(contractDir, metaDir string) error {
 	hosts := make(map[hostdb.HostPublicKey]map[crypto.Hash]uint64)
 	for _, contract := range contracts {
 		err := func() error {
-			hostIP, err := c.ResolveHostKey(contract.HostKey())
+			hostIP, err := c.ResolveHostKey(contract.HostKey)
 			if err != nil {
 				return err
 			}
-			s, err := proto.NewSession(hostIP, contract, currentHeight)
+			s, err := proto.NewSession(hostIP, contract.HostKey, contract.ID, contract.Key, currentHeight)
 			if err != nil {
 				return err
 			}
 			defer s.Close()
-			roots, err := s.SectorRoots(0, contract.Revision().NumSectors())
+			roots, err := s.SectorRoots(0, s.Revision().NumSectors())
 			if err != nil {
 				return err
 			}
@@ -48,11 +44,11 @@ func deleteUnreferencedSectors(contractDir, metaDir string) error {
 			for i := range roots {
 				rootMap[roots[i]] = uint64(i)
 			}
-			hosts[contract.HostKey()] = rootMap
+			hosts[contract.HostKey] = rootMap
 			return nil
 		}()
 		if err != nil {
-			fmt.Printf("Could not download sector roots from host %v: %v", contract.HostKey().ShortKey(), err)
+			fmt.Printf("Could not download sector roots from host %v: %v", contract.HostKey.ShortKey(), err)
 		}
 	}
 
@@ -112,25 +108,40 @@ Press ENTER to proceed, or Ctrl-C to abort.
 	//
 	// TODO: parallelize
 	for _, contract := range contracts {
-		roots, ok := hosts[contract.HostKey()]
+		roots, ok := hosts[contract.HostKey]
 		if !ok {
 			continue // must be one of the hosts that failed earlier
 		}
 		if len(roots) == 0 {
-			fmt.Printf("%v: Nothing to delete", contract.HostKey().ShortKey())
+			fmt.Printf("%v: Nothing to delete", contract.HostKey.ShortKey())
 			continue
 		}
 		err := deleteFromHost(c, contract, roots)
 		if err != nil {
-			fmt.Printf("%v: Deletion failed: %v\n", contract.HostKey().ShortKey(), err)
+			fmt.Printf("%v: Deletion failed: %v\n", contract.HostKey.ShortKey(), err)
 		} else {
-			fmt.Printf("%v: Deleted %v sectors\n", contract.HostKey().ShortKey(), len(roots))
+			fmt.Printf("%v: Deleted %v sectors\n", contract.HostKey.ShortKey(), len(roots))
 		}
 	}
 	return nil
 }
 
-func deleteFromHost(c limitedClient, contract *renter.Contract, roots map[crypto.Hash]uint64) error {
+func deleteFromHost(c *renterutil.SHARDClient, contract renter.Contract, roots map[crypto.Hash]uint64) error {
+	// connect to host
+	hostIP, err := c.ResolveHostKey(contract.HostKey)
+	if err != nil {
+		return err
+	}
+	currentHeight, err := c.ChainHeight()
+	if err != nil {
+		return err
+	}
+	s, err := proto.NewSession(hostIP, contract.HostKey, contract.ID, contract.Key, currentHeight)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
 	// The Write RPC supports "swap(i,j)" and "trim(i)" (deleting i sectors
 	// from the end). So we need to swap all the "bad" sectors to the end in
 	// order to delete them with a subsequent trim.
@@ -146,7 +157,7 @@ func deleteFromHost(c limitedClient, contract *renter.Contract, roots map[crypto
 	// iterate backwards from the end of the contract, swapping each "good"
 	// sector with one of the "bad" sectors.
 	var actions []renterhost.RPCWriteAction
-	cIndex := contract.NumSectors() - 1
+	cIndex := s.Revision().NumSectors() - 1
 	for _, rIndex := range badIndices {
 		if cIndex != rIndex {
 			// swap a "good" sector for a "bad" sector
@@ -164,20 +175,8 @@ func deleteFromHost(c limitedClient, contract *renter.Contract, roots map[crypto
 		A:    uint64(len(badIndices)),
 	})
 
-	// connect and request the swap+delete operation
-	hostIP, err := c.ResolveHostKey(contract.HostKey())
-	if err != nil {
-		return err
-	}
-	currentHeight, err := c.ChainHeight()
-	if err != nil {
-		return err
-	}
-	s, err := proto.NewSession(hostIP, contract, currentHeight)
-	if err != nil {
-		return err
-	}
-	defer s.Close()
+	// request the swap+delete operation
+	//
 	// NOTE: siad hosts will accept up to 20 MiB of data in the request,
 	// which should be sufficient to delete up to 2.5 TiB of sector data
 	// at a time.

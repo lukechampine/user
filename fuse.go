@@ -16,14 +16,8 @@ import (
 	"lukechampine.com/us/renter/renterutil"
 )
 
-func mount(contractDir, metaDir, mountDir string, minShards int) error {
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
-
-	c := makeLimitedClient()
+func mount(contracts renter.ContractSet, metaDir, mountDir string, minShards int) error {
+	c := makeSHARDClient()
 	currentHeight, err := c.ChainHeight()
 	if err != nil {
 		return err
@@ -221,25 +215,13 @@ func (f *metaFSFile) Write(p []byte, off int64) (written uint32, code fuse.Statu
 }
 
 func (f *metaFSFile) Truncate(size uint64) fuse.Status {
-	if err := f.pf.Truncate(int64(size)); err != nil {
-		return errToStatus("Truncate", f.pf.Name(), err)
-	}
-	return fuse.OK
+	return errToStatus("Truncate", f.pf.Name(), f.pf.Truncate(int64(size)))
 }
 
 func (f *metaFSFile) Flush() fuse.Status {
-	return fuse.OK
-}
-
-func (f *metaFSFile) Release() {
-	if err := f.pf.Close(); err != nil {
-		_ = errToStatus("Release", f.pf.Name(), err)
-	}
+	return errToStatus("Flush", f.pf.Name(), f.pf.Close())
 }
 
 func (f *metaFSFile) Fsync(flags int) fuse.Status {
-	if err := f.pf.Sync(); err != nil {
-		return errToStatus("Fsync", f.pf.Name(), err)
-	}
-	return fuse.OK
+	return errToStatus("Fsync", f.pf.Name(), f.pf.Sync())
 }

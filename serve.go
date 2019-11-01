@@ -12,14 +12,8 @@ import (
 	"lukechampine.com/us/renter/renterutil"
 )
 
-func serve(contractDir, metaDir, addr string) error {
-	contracts, err := renter.LoadContracts(contractDir)
-	if err != nil {
-		return errors.Wrap(err, "could not load contracts")
-	}
-	defer contracts.Close()
-
-	c := makeLimitedClient()
+func serve(contracts renter.ContractSet, metaDir, addr string) error {
+	c := makeSHARDClient()
 	currentHeight, err := c.ChainHeight()
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")

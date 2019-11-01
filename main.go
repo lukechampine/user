@@ -1,27 +1,18 @@
 package main // import "lukechampine.com/user"
 
 import (
-	"context"
-	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/pkg/errors"
 	"gitlab.com/NebulousLabs/Sia/build"
-	"gitlab.com/NebulousLabs/Sia/types"
-	"golang.org/x/crypto/ssh/terminal"
 	"lukechampine.com/flagg"
-	"lukechampine.com/us/hostdb"
+	"lukechampine.com/muse"
 	"lukechampine.com/us/renter"
-	"lukechampine.com/us/renter/proto"
 	"lukechampine.com/us/renter/renterutil"
-	"lukechampine.com/us/wallet"
 )
 
 var (
@@ -35,61 +26,14 @@ var (
     user [flags] [action]
 
 Actions:
-    scan            scan a host
-    form            form a contract
-    renew           renew a contract
     upload          upload a file
     download        download a file
     checkup         check the health of a file
     migrate         migrate a file to different hosts
-    tattle          submit a contract revision to the blockchain
-    info            display info about a contract or file
+    info            display info about a file
 `
 	versionUsage = rootUsage
-	scanUsage    = `Usage:
-    user scan hostkey bytes duration downloads
 
-Scans the specified host and reports various metrics.
-
-bytes is the number of bytes intended to be stored on the host; duration is
-the number of blocks that the contract will be active; downloads is the
-expected ratio of downloads to uploads, i.e. downloads = 0.5 means the user
-expects to download half of the uploaded data.
-`
-	formUsage = `Usage:
-    user form hostkey funds duration [filename]
-    user form hostkey funds @endheight [filename]
-
-Forms a contract with the specified host for the specified duration with the
-specified amount of funds. To specify an exact end height for the contract,
-use @endheight; otherwise, the end height will be the current height plus the
-supplied duration. Due to various fees, the total number of coins deducted
-from the wallet may be greater than funds. Run 'user scan' on the host to see
-a breakdown of these fees.
-
-If filename is provided, the resulting contract file will be written to
-filename. Otherwise, it will be written to the default contracts directory.
-`
-	renewUsage = `Usage:
-    user renew contract funds duration [filename]
-    user renew contract funds @endheight [filename]
-    user renew contract funds +extension [filename]
-
-Renews the specified contract (that is, a .contract file) for the specified
-duration and with the specified amount of funds. Like 'user form', an exact
-end height can be specified using the @ prefix; additionally, a + prefix will
-set the end height equal to the old contract end height plus the supplied
-extension. Due to various fees, the total number of coins deducted from the
-wallet may be greater than funds. Run 'user scan' on the host to see a
-breakdown of these fees.
-
-If filename is provided, the resulting contract file will be written to
-filename. Otherwise, it will be written to the default contracts directory.
-
-The old contract file is archived by renaming it to contract_old. In most
-cases, these archived contracts can be safely deleted. However, it is prudent
-to first verify (with the checkup command) that the new contract is usable.
-`
 	uploadUsage = `Usage:
     user upload file
     user upload file metafile
@@ -139,35 +83,6 @@ is retrievable, and reports the resulting metrics for each host. Note that
 this operation is not free.
 `
 
-	contractsUsage = `Usage:
-    user contracts action
-
-Actions:
-    list            list contracts
-    enable          enable a contract
-    disable         disable a contract
-`
-
-	contractsListUsage = `Usage:
-    user contracts list
-
-Lists available and enabled contracts, along with various metadata.
-`
-
-	contractsEnableUsage = `Usage:
-    user contracts enable hostkey
-
-Enables the contract with the specified host. The contract must be present in
-the available contracts directory.
-`
-
-	contractsDisableUsage = `Usage:
-    user contracts disable hostkey
-
-Enables the contract with the specified host. The contract must be present in
-the available contracts directory.
-`
-
 	migrateUsage = `Usage:
     user migrate metafile
     user migrate metafolder
@@ -176,48 +91,13 @@ Migrates sector data from the metafile's current set of hosts to a new set.
 There are three migration strategies, specified by mutually-exclusive flags.
 `
 	mFileUsage = `Erasure-encode the original file on disk. This is the fastest and
-	cheapest option, but it requires a local copy of the file.`
-
-	mDirectUsage = `Upload sectors downloaded directly from old hosts. This is faster and
-	cheaper than -remote, but it requires that the old hosts be online.`
+    cheapest option, but it requires a local copy of the file.`
 
 	mRemoteUsage = `Download the file from existing hosts and erasure-encode it. This is
-	the slowest and most expensive option, but it doesn't require a local
-	copy of the file, and it can be performed even if the "old" hosts are
-	offline.`
+    the slowest and most expensive option, but it doesn't require a local
+    copy of the file, and it can be performed even if the "old" hosts are
+    offline.`
 
-	tattleUsage = `Usage:
-	user tattle contract
-
-Broadcasts the contract transaction in the specified file, recording the
-latest revision of the contract in the blockchain. Unless a revision is
-broadcast before the contract period ends, it's like the contract never
-happened; the renter and host both get their money back. As a result, the
-renter has little incentive to broadcast a revision (because revisions always
-transfer money from the renter to the host), whereas the host has an
-overwhelming incentive to broadcast a revision immediately prior to the end of
-the contract (in order to maximize the amount of renter funds they receive).
-
-However, if the host is acting maliciously or provide poor service, the renter
-can punish them by submitting a revision. This causes the renter to forfeit
-whatever money they've already sent to the host, but it also ensures that the
-host will lose whatever collateral they've committed. Since the host spends
-more on collateral than the renter does on storage, this is an example of
-"cutting off your nose to spite your face." It hurts the renter, but it hurts
-the host more.
-
-This is rarely the right thing to do, so think carefully before running this
-command. In most cases, it's preferable to not submit anything and hope that
-the host doesn't either, so you get your money back. It's also important to
-know that the host will only lose their collateral if they don't submit a
-valid storage proof. So if you think the host is just refusing to talk to you,
-bear in mind that they will likely still be able to submit a storage proof and
-thus reclaim their collateral. On the other hand, if you think the host has
-gone offline or has lost your data, submitting a revision makes more sense.
-
-Lastly, please be aware that broadcasting a revision will incur a standard
-transaction fee.
-`
 	infoUsage = `Usage:
     user info contract
     user info metafile
@@ -245,7 +125,7 @@ affected.
 
 Runs a "garbage collection cycle," which deletes any sectors not referenced
 by the metafiles in the specified folder. Metafiles outside this folder may
-become unavailable, so exercise caution before running this command!
+become unavailable, so exercise caution when running this command!
 `
 )
 
@@ -257,73 +137,29 @@ func check(ctx string, err error) {
 	}
 }
 
-func getSeed() wallet.Seed {
-	phrase := os.Getenv("WALRUS_SEED")
-	if phrase != "" {
-		fmt.Println("Using WALRUS_SEED environment variable")
-	} else {
-		fmt.Print("Seed: ")
-		pw, err := terminal.ReadPassword(int(os.Stdin.Fd()))
-		if err != nil {
-			log.Fatal("Could not read seed phrase:", err)
-		}
-		fmt.Println()
-		phrase = string(pw)
-	}
-	seed, err := wallet.SeedFromPhrase(phrase)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return seed
-}
-
-type limitedClient interface {
-	Synced() (bool, error)
-	ChainHeight() (types.BlockHeight, error)
-	LookupHost(prefix string) (hostdb.HostPublicKey, error)
-	renter.HostKeyResolver
-}
-
-type fullClient interface {
-	limitedClient
-	proto.Wallet
-	proto.TransactionPool
-}
-
-type walrusSHARD struct {
-	*renterutil.WalrusClient
-	*renterutil.SHARDClient
-}
-
-func makeClient() fullClient {
-	// fullClient can be implemented by either siad or SHARD+walrus
-	if config.SHARDAddr != "" && config.WalrusAddr != "" {
-		return walrusSHARD{renterutil.NewWalrusClient(config.WalrusAddr, getSeed()), renterutil.NewSHARDClient(config.SHARDAddr)}
-	}
-	if config.SiadPassword == "" {
-		// attempt to read the standard siad password file
-		pw, err := ioutil.ReadFile(filepath.Join(build.DefaultSiaDir(), "apipassword"))
-		check("Could not read siad password file:", err)
-		config.SiadPassword = strings.TrimSpace(string(pw))
-	}
-	return renterutil.NewSiadClient(config.SiadAddr, config.SiadPassword)
-}
-
-func makeLimitedClient() limitedClient {
+func makeSHARDClient() *renterutil.SHARDClient {
 	if config.SHARDAddr == "" {
-		return makeClient()
+		log.Fatal("Could not connect to SHARD server: no SHARD server specified")
 	}
 	return renterutil.NewSHARDClient(config.SHARDAddr)
 }
 
-func scanHost(hkr renter.HostKeyResolver, pubkey hostdb.HostPublicKey) (hostdb.ScannedHost, error) {
-	addr, err := hkr.ResolveHostKey(pubkey)
-	if err != nil {
-		return hostdb.ScannedHost{}, err
+func getContracts() renter.ContractSet {
+	if config.MuseAddr == "" {
+		log.Fatal("Could not get contracts: no muse server specified")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return hostdb.Scan(ctx, addr, pubkey)
+	c := muse.NewClient(config.MuseAddr)
+	contracts, err := c.Contracts()
+	check("Could not get contracts:", err)
+	set := make(renter.ContractSet, len(contracts))
+	for _, c := range contracts {
+		set[c.HostKey] = renter.Contract{
+			HostKey: c.HostKey,
+			ID:      c.ID,
+			Key:     c.RenterKey,
+		}
+	}
+	return set
 }
 
 func main() {
@@ -335,28 +171,16 @@ func main() {
 	}
 
 	rootCmd := flagg.Root
-	rootCmd.StringVar(&config.SiadAddr, "a", config.SiadAddr, "host:port that the siad API is running on")
-	rootCmd.StringVar(&config.SiadPassword, "p", config.SiadPassword, "password required by siad API")
-	rootCmd.StringVar(&config.ContractsEnabled, "c", config.ContractsEnabled, "directory containing active contract set")
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
 
 	versionCmd := flagg.New("version", versionUsage)
-	scanCmd := flagg.New("scan", scanUsage)
-	formCmd := flagg.New("form", formUsage)
-	renewCmd := flagg.New("renew", renewUsage)
 	uploadCmd := flagg.New("upload", uploadUsage)
 	uploadCmd.IntVar(&config.MinShards, "m", config.MinShards, "minimum number of shards required to download file")
 	downloadCmd := flagg.New("download", downloadUsage)
 	checkupCmd := flagg.New("checkup", checkupUsage)
-	contractsCmd := flagg.New("contracts", contractsUsage)
-	contractsListCmd := flagg.New("list", contractsListUsage)
-	contractsEnableCmd := flagg.New("enable", contractsEnableUsage)
-	contractsDisableCmd := flagg.New("disable", contractsDisableUsage)
 	migrateCmd := flagg.New("migrate", migrateUsage)
 	mFile := migrateCmd.String("file", "", mFileUsage)
-	mDirect := migrateCmd.Bool("direct", false, mDirectUsage)
 	mRemote := migrateCmd.Bool("remote", false, mRemoteUsage)
-	tattleCmd := flagg.New("tattle", tattleUsage)
 	infoCmd := flagg.New("info", infoUsage)
 	serveCmd := flagg.New("serve", serveUsage)
 	sAddr := serveCmd.String("addr", ":8080", "HTTP service address")
@@ -369,19 +193,10 @@ func main() {
 		Cmd: rootCmd,
 		Sub: []flagg.Tree{
 			{Cmd: versionCmd},
-			{Cmd: scanCmd},
-			{Cmd: formCmd},
-			{Cmd: renewCmd},
 			{Cmd: uploadCmd},
 			{Cmd: downloadCmd},
 			{Cmd: checkupCmd},
-			{Cmd: contractsCmd, Sub: []flagg.Tree{
-				{Cmd: contractsListCmd},
-				{Cmd: contractsEnableCmd},
-				{Cmd: contractsDisableCmd},
-			}},
 			{Cmd: migrateCmd},
-			{Cmd: tattleCmd},
 			{Cmd: infoCmd},
 			{Cmd: serveCmd},
 			{Cmd: mountCmd},
@@ -399,23 +214,8 @@ func main() {
 		}
 		fallthrough
 	case versionCmd:
-		log.Printf("user v0.5.0\nCommit:     %s\nRelease:    %s\nGo version: %s %s/%s\nBuild Date: %s\n",
+		log.Printf("user v0.7.0\nCommit:     %s\nRelease:    %s\nGo version: %s %s/%s\nBuild Date: %s\n",
 			githash, build.Release, runtime.Version(), runtime.GOOS, runtime.GOARCH, builddate)
-
-	case scanCmd:
-		hostkey, bytes, duration, downloads := parseScan(args, scanCmd)
-		err := scan(hostkey, bytes, duration, downloads)
-		check("Scan failed:", err)
-
-	case formCmd:
-		host, funds, end, filename := parseForm(args, formCmd)
-		err := form(host, funds, end, filename)
-		check("Contract formation failed:", err)
-
-	case renewCmd:
-		contract, funds, end, filename := parseRenew(args, renewCmd)
-		err := renew(contract, funds, end, filename)
-		check("Renew failed:", err)
 
 	case uploadCmd:
 		if config.MinShards == 0 {
@@ -425,11 +225,11 @@ Define min_shards in your config file or supply the -m flag.`)
 		f, meta := parseUpload(args, uploadCmd)
 		var err error
 		if stat, statErr := f.Stat(); statErr == nil && stat.IsDir() {
-			err = uploadmetadir(f.Name(), meta, config.ContractsEnabled, config.MinShards)
+			err = uploadmetadir(f.Name(), meta, getContracts(), config.MinShards)
 		} else if _, statErr := os.Stat(meta); !os.IsNotExist(statErr) {
-			err = resumeuploadmetafile(f, config.ContractsEnabled, meta)
+			err = resumeuploadmetafile(f, getContracts(), meta)
 		} else {
-			err = uploadmetafile(f, config.MinShards, config.ContractsEnabled, meta)
+			err = uploadmetafile(f, config.MinShards, getContracts(), meta)
 		}
 		f.Close()
 		check("Upload failed:", err)
@@ -438,9 +238,9 @@ Define min_shards in your config file or supply the -m flag.`)
 		f, meta := parseDownload(args, downloadCmd)
 		var err error
 		if stat, statErr := f.Stat(); statErr == nil && stat.IsDir() {
-			err = downloadmetadir(f.Name(), config.ContractsEnabled, meta)
+			err = downloadmetadir(f.Name(), getContracts(), meta)
 		} else if f == os.Stdout {
-			err = downloadmetastream(f, config.ContractsEnabled, meta)
+			err = downloadmetastream(f, getContracts(), meta)
 			// if the pipe we're writing to breaks, it was probably
 			// intentional (e.g. 'head' exiting after reading 10 lines), so
 			// suppress the error.
@@ -450,49 +250,17 @@ Define min_shards in your config file or supply the -m flag.`)
 				}
 			}
 		} else {
-			err = downloadmetafile(f, config.ContractsEnabled, meta)
+			err = downloadmetafile(f, getContracts(), meta)
 			f.Close()
 		}
 		check("Download failed:", err)
 
 	case checkupCmd:
 		path := parseCheckup(args, checkupCmd)
-		var err error
-		if _, readErr := renter.ReadMetaIndex(path); readErr == nil {
-			err = checkupMeta(config.ContractsEnabled, path)
-		} else if _, readErr := renter.ReadContractRevision(path); readErr == nil {
-			err = checkupContract(path)
-		} else {
-			log.Fatalln("Not a valid contract or metafile")
-		}
+		_, err := renter.ReadMetaIndex(path)
+		check("Could not load metafile:", err)
+		err = checkupMeta(getContracts(), path)
 		check("Checkup failed:", err)
-
-	case contractsCmd:
-		contractsCmd.Usage()
-
-	case contractsListCmd:
-		if len(args) != 0 {
-			contractsListCmd.Usage()
-			return
-		}
-		err := listcontracts()
-		check("Could not list contracts:", err)
-
-	case contractsEnableCmd:
-		if len(args) != 1 {
-			contractsEnableCmd.Usage()
-			return
-		}
-		err := enableContract(args[0])
-		check("Could not enable contract:", err)
-
-	case contractsDisableCmd:
-		if len(args) != 1 {
-			contractsDisableCmd.Usage()
-			return
-		}
-		err := disableContract(args[0])
-		check("Could not disable contract:", err)
 
 	case migrateCmd:
 		if len(args) == 0 {
@@ -504,56 +272,39 @@ Define min_shards in your config file or supply the -m flag.`)
 		isDir := statErr == nil && stat.IsDir()
 		var err error
 		switch {
-		case *mFile == "" && !*mDirect && !*mRemote:
+		case *mFile == "" && !*mRemote:
 			log.Fatalln("No migration strategy specified (see user migrate --help).")
 		case *mFile != "" && !isDir:
 			f, ferr := os.Open(*mFile)
 			check("Could not open file:", ferr)
-			err = migrateFile(f, config.ContractsEnabled, meta)
+			err = migrateFile(f, getContracts(), meta)
 			f.Close()
 		case *mFile != "" && isDir:
-			err = migrateDirFile(*mFile, config.ContractsEnabled, meta)
-		case *mDirect && !isDir:
-			err = migrateDirect(config.ContractsAvailable, config.ContractsEnabled, meta)
-		case *mDirect && isDir:
-			err = migrateDirDirect(config.ContractsAvailable, config.ContractsEnabled, meta)
+			err = migrateDirFile(*mFile, getContracts(), meta)
 		case *mRemote && !isDir:
-			err = migrateRemote(config.ContractsEnabled, meta)
+			err = migrateRemote(getContracts(), meta)
 		case *mRemote && isDir:
-			err = migrateDirRemote(config.ContractsEnabled, meta)
+			err = migrateDirRemote(getContracts(), meta)
 		default:
 			log.Fatalln("Multiple migration strategies specified (see user migrate --help).")
 		}
 		check("Migration failed:", err)
-
-	case tattleCmd:
-		if len(args) != 1 {
-			tattleCmd.Usage()
-			return
-		}
-		err := tattle(args[0])
-		check("Tattling failed:", err)
 
 	case infoCmd:
 		if len(args) != 1 {
 			infoCmd.Usage()
 			return
 		}
-
-		if m, err := renter.ReadMetaFile(args[0]); err == nil {
-			metainfo(m)
-		} else if h, err := renter.ReadContractRevision(args[0]); err == nil {
-			contractinfo(h)
-		} else {
-			log.Fatalln("Not a contract or metafile")
-		}
+		m, err := renter.ReadMetaFile(args[0])
+		check("Could not read metafile:", err)
+		metainfo(m)
 
 	case serveCmd:
 		if len(args) != 1 {
 			serveCmd.Usage()
 			return
 		}
-		err := serve(config.ContractsEnabled, args[0], *sAddr)
+		err := serve(getContracts(), args[0], *sAddr)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -563,23 +314,17 @@ Define min_shards in your config file or supply the -m flag.`)
 			mountCmd.Usage()
 			return
 		}
-		err := mount(config.ContractsEnabled, args[0], args[1], config.MinShards)
+		err := mount(getContracts(), args[0], args[1], config.MinShards)
 		if err != nil {
 			log.Fatal(err)
 		}
-
-	case convertCmd:
-		if len(args) != 1 {
-			convertCmd.Usage()
-			return
-		}
-		check("Conversion failed:", renter.ConvertContract(args[0]))
 
 	case gcCmd:
 		if len(args) != 1 {
 			gcCmd.Usage()
 			return
 		}
-		check("Garbage collection failed:", deleteUnreferencedSectors(config.ContractsEnabled, args[0]))
+		err := deleteUnreferencedSectors(getContracts(), args[0])
+		check("Garbage collection failed:", err)
 	}
 }

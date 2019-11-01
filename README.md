@@ -29,106 +29,10 @@ $ go get lukechampine.com/user
 
 Alternatively, checkout this repository and run `make`.
 
-`user` cannot operate on its own; it needs to talk to another server to form
-contracts, resolve host addresses, and learn the current block height. This
-guide assumes that the server is `siad`. Later sections describe how to use
-`user` with [alternative](#using-a-shard-server) [servers](#using-a-walrus-server).
-
-You will need a synchronized `siad` with an unlocked wallet. The wallet should
-contain enough siacoins to fund the contracts you want to form. If your instance
-of `siad` is using a non-standard API port or password, refer to
-[Configuration](#configuration) to set those values accordingly.
-
-
-## Scanning for Hosts
-
-Before you can store files, you need to form contracts, and before you can form
-contracts, you need to choose which hosts you'll use. You can get a ranked list
-of hosts by running `siac hostdb -v`. The longer `siad` has been running, the
-more accurate these rankings will be. You can also consult a service like
-[SiaStats](https://siastats.info/hosts), which uses `us` to regularly benchmark
-hosts and measure their true performance.
-
-You'll need the public key of each host you want to use. Host public keys look
-like this:
-
-```
-ed25519:706715a4f37fda29f8e06b867c5df3f139f6ed93c18d99a5665eb66a5fab6009
-```
-
-Since these keys are long and unwieldy, `user` lets you use an abbreviated form.
-In the abbreviated form, the `ed25519:` prefix is dropped, and only the first
-few characters of the key are retained. The key above, for example, could be
-shortened to `706715a4`. Like git hashes, you only need enough characters to
-ensure that the key is unambiguous; eight is a safe choice.
-
-
-## Forming Contracts
-
-Now we're ready to form a contract. The command syntax is:
-
-```
-$ user form [hostkey] [funds] [endheight] [contract]
-```
-
-`hostkey` is the public key of the host; `funds` is the amount of siacoins the
-contract will store; `endheight` is the height at which the host is no longer
-obligated to store the data; and `contract` is the filepath where the contract
-itself will be written. If `contract` is not supplied, the contract will be
-written to the default contract directory. (See [Configuration](#configuration).)
-
-`user` manages contracts in a way that should be familiar to users of
-[NGINX](https://www.nginx.com). All contracts are stored as files in a directory
-(typically named `contracts-available`), and to *enable* a contract, you create
-a symlink to it in another directory (typically named `contracts-enabled`). When
-you form a contract with `user form`, `user` will enable the contract for you by
-creating the appropriate symlink.
-
-Note that, in the above command, `funds` does not include the transaction fee,
-the host's contract fee, or the siafund tax. `funds` is simply the number of
-coins in the renter's half of the payment channel, i.e. the amount reserved for
-paying the host when uploading and downloading. In practice, it is difficult to
-predict exactly how much a contract will cost, but `user` provides a command
-that can give a reasonably-accurate estimate:
-
-```
-$ user scan [hostkey] [filesize] [duration] [downloads]
-Data Cost:       1000 SC
-Host Fee:         200 SC
-Siafund Fee:      100 SC
-Transaction Fee:   10 SC
-Total:           1310 SC
-```
-
-`filesize` is the total amount of data stored, `duration` is the number of
-blocks the data is stored for, and `downloads` is the expected number of times
-the data will be downloaded. The `Data Cost` field indicates how many siacoins
-should be specified when calling `form`, and the `Total` field estimates how
-many coins will be spent from the wallet when `form` is called.
-
-
-## Renewing Contracts
-
-Once you have a contract, renewing is easy:
-
-```
-$ user renew [contract] [funds] [endheight] [newcontract]
-```
-
-`contract` is the path of the original contract metadata file, and
-`newcontract` is where the new contract metadata will be written. If
-`newcontract` is not supplied, the new contract will be written to a file
-named according to the same scheme as `user form`.
-
-When a contract is renewed, the new contract is automatically enabled and the
-old contract is disabled (if applicable). Lastly, a suffix (`_old`) is appended
-to the filename of the old contract to ensure that it will no longer be used.
-
-The host may be offline when you attempt to renew, in which case you will have
-to try again later. If the contract is not renewed before it expires, the host
-will delete any data associated with the contract. For this reason, it is
-recommended that you first attempt to renew a contract at least 1000 blocks
-(approx. 1 week) before it expires.
+`user` cannot operate on its own; it needs contracts, which it gets from a
+[`muse`](https://github.com/lukechampine/muse) server. It also needs a way to
+resolve host addresses and to learn the current block height. Another server,
+either [`siad`] or [`shard`], can be used for this.
 
 
 ## Uploading and Downloading Files
@@ -185,37 +89,6 @@ $ user download [metafile] > myfile
 
 This means you can pipe downloaded files directly into other commands without
 creating a temporary file.
-
-
-## Blacklisting Hosts
-
-Sia's design assumes that hosts may fail or provide poor quality of service.
-If a host goes offline, transfers data too slowly, raises their prices too
-high, etc., naturally we would like to blacklist them. This is as simple as:
-
-```
-$ user contracts disable [hostkey]
-```
-
-Disabling a contract does not delete it permanently; the actual contract file
-remains in the `contracts_available` directory. This command simply removes
-the corresponding symlink in the `contracts_enabled` directory.
-
-Of course, if you blacklist too many hosts, you may not be able to download
-your files from the remaining set. To re-enable a contract, run:
-
-```
-$ user contracts enable [hostkey]
-```
-
-As expected, this command simply recreates a symlink in the `contracts-enabled`
-directory.
-
-The use of symlinks allows you to create multiple sets of enabled contracts
-and quickly switch between them. For example, you could have a directory
-called `contracts-cheap` that references the cheapest hosts, and another
-directory called `contracts-fast` that references the fastest hosts. You can
-then pass the `-c` flag to `user` to switch between these sets at will.
 
 
 ## Migrating Files
@@ -290,15 +163,6 @@ siad_addr = "localhost:1993"
 # OPTIONAL. Default: ""
 siad_password = "foobarbaz"
 
-# Directory where contracts are stored. An absolute path is recommended.
-# OPTIONAL. Default: "~/.config/us/contracts-available"
-contracts_available = "~/us/available"
-
-# Directory where enabled contracts are stored. This directory should contain
-# only symlinks to the contracts folder. An absolute path is recommended.
-# OPTIONAL. Default: "~/.config/us/contracts-enabled"
-contracts_enabled = "~/us/enabled"
-
 # Minimum number of hosts required to download a file. Also controls
 # file redundancy: uploading to 40 hosts with min_shards = 10 results
 # in 4x redundancy.
@@ -346,35 +210,3 @@ $ user serve [metadir]
 You can then browse to http://localhost:8080 to view the files in your web
 browser.
 
-
-### Using a `shard` Server
-
-`user` can talk to a [`shard`](https://github.com/lukechampine/shard) server to
-learn the current blockheight and resolve host addresses. Forming and renewing
-contracts still requires `siad`, but once you have contracts, a `shard` server
-allows you to upload and download without a full node.
-
-To configure `user` to talk to a `shard` server, simply add its address to your
-`config.toml`, e.g.:
-
-```toml
-shard_addr = "12.34.56.78"
-```
-
-`user` will then use the `shard` server when it can, and `siad` otherwise.
-
-
-### Using a `walrus` Server
-
-`user` can talk to a `walrus` server to form and renew contracts. If you
-configure `user` to use a `walrus` server, you must use a `shard` server as
-well, because `walrus` cannot perform host address resolution.
-
-To configure `user` to talk to a `walrus` server, simply add its address to your
-`config.toml`, e.g.:
-
-```toml
-walrus_addr = "12.34.56.78:9999"
-```
-
-`user` will then use the `walrus` and `shard` servers instead of `siad`.

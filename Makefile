@@ -30,6 +30,7 @@ lint:
 		--disable=dupl \
 		--disable=errcheck \
 		--disable=gochecknoglobals \
+		--disable=funlen \
 		--skip-dirs=internal \
 		./...
 
