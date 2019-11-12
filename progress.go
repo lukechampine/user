@@ -67,6 +67,22 @@ func trackDownload(f *os.File, pf *renterutil.PseudoFile, off int64) error {
 	return err
 }
 
+// Writes to PseudoFiles are buffered. Wrap the Write method so that we Sync
+// after each Write. Otherwise, our transfer speeds will reflect the buffer
+// speed, not the actual upload speed. (However, Syncing after each Write means
+// that if we don't buffer the Writes ourselves, we'll waste a lot of data.)
+type syncWriter struct {
+	pf *renterutil.PseudoFile
+}
+
+func (sw syncWriter) Write(p []byte) (int, error) {
+	n, err := sw.pf.Write(p)
+	if err == nil {
+		err = sw.pf.Sync()
+	}
+	return n, err
+}
+
 func trackUpload(pf *renterutil.PseudoFile, f *os.File) error {
 	stat, err := f.Stat()
 	if err != nil {
@@ -85,13 +101,16 @@ func trackUpload(pf *renterutil.PseudoFile, f *os.File) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGPIPE)
 	tw := &trackWriter{
-		w:       pf,
+		w:       syncWriter{pf},
 		name:    f.Name(),
 		off:     pstat.Size(),
 		total:   stat.Size(),
 		start:   time.Now(),
 		sigChan: sigChan,
 	}
+	// print initial progress
+	printSimpleProgress(f.Name(), tw.off, tw.xfer, tw.total, time.Since(tw.start))
+	// start transfer
 	index := pstat.Sys().(renter.MetaIndex)
 	buf := make([]byte, renterhost.SectorSize*index.MinShards)
 	_, err = io.CopyBuffer(tw, f, buf)
@@ -198,6 +217,10 @@ func makeBuf(width int) []rune {
 }
 
 func printSimpleProgress(filename string, start, xfer, total int64, elapsed time.Duration) {
+	// prevent divide-by-zero
+	if elapsed == 0 {
+		elapsed = 1
+	}
 	termWidth := getWidth()
 	bytesPerSec := int64(float64(xfer) / elapsed.Seconds())
 	pct := (100 * (start + xfer)) / total
