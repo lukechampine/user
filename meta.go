@@ -83,7 +83,7 @@ func uploadmetafile(f *os.File, minShards int, contracts renter.ContractSet, met
 		return err
 	}
 	defer pf.Close()
-	if err := trackUpload(pf, f); err != nil {
+	if err := trackUpload(pf, f, true); err != nil {
 		return err
 	}
 	return fs.Close()
@@ -116,7 +116,7 @@ func uploadmetadir(dir, metaDir string, contracts renter.ContractSet, minShards 
 			return err
 		}
 		defer f.Close()
-		return trackUpload(pf, f)
+		return trackUpload(pf, f, false)
 	})
 	if err != nil {
 		return err
@@ -146,7 +146,7 @@ func resumeuploadmetafile(f *os.File, contracts renter.ContractSet, metaPath str
 	if _, err := f.Seek(stat.Size(), io.SeekStart); err != nil {
 		return err
 	}
-	if err := trackUpload(pf, f); err != nil {
+	if err := trackUpload(pf, f, true); err != nil {
 		return err
 	}
 	return fs.Close()
@@ -281,12 +281,7 @@ func checkupMeta(contracts renter.ContractSet, metaPath string) error {
 	return nil
 }
 
-func migrateFile(f *os.File, contracts renter.ContractSet, metaPath string) error {
-	m, err := renter.ReadMetaFile(metaPath)
-	if err != nil {
-		return errors.Wrap(err, "could not load metafile")
-	}
-
+func migrateLocal(f *os.File, contracts renter.ContractSet, metaPath string) error {
 	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
@@ -295,11 +290,14 @@ func migrateFile(f *os.File, contracts renter.ContractSet, metaPath string) erro
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	op := renterutil.MigrateFile(f, contracts, m, c, currentHeight)
-	return trackMigrateFile(metaPath, op)
+	hosts := makeHostSet(contracts, c, currentHeight)
+	defer hosts.Close()
+
+	migrator := renterutil.NewMigrator(hosts)
+	return trackMigrate(migrator, metaPath, f)
 }
 
-func migrateDirFile(dir string, contracts renter.ContractSet, metaDir string) error {
+func migrateDirLocal(dir string, contracts renter.ContractSet, metaDir string) error {
 	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
@@ -308,17 +306,36 @@ func migrateDirFile(dir string, contracts renter.ContractSet, metaDir string) er
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	metafileIter := renterutil.NewRecursiveMetaFileIter(metaDir, dir)
-	op := renterutil.MigrateDirFile(contracts, metafileIter, c, currentHeight)
-	return trackMigrateDir(op)
+	hosts := makeHostSet(contracts, c, currentHeight)
+	defer hosts.Close()
+	migrator := renterutil.NewMigrator(hosts)
+
+	err = filepath.Walk(metaDir, func(metaPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		} else if info.IsDir() {
+			return nil
+		}
+		name, _ := filepath.Rel(metaDir, metaPath)
+		filePath := strings.TrimSuffix(filepath.Join(dir, name), metafileExt)
+
+		f, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return trackMigrate(migrator, metaPath, f)
+	})
+	if err != nil {
+		return err
+	}
+	if err := migrator.Flush(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func migrateRemote(contracts renter.ContractSet, metaPath string) error {
-	m, err := renter.ReadMetaFile(metaPath)
-	if err != nil {
-		return errors.Wrap(err, "could not load metafile")
-	}
-
 	c := makeSHARDClient()
 	if synced, err := c.Synced(); !synced && err == nil {
 		return errors.New("blockchain is not synchronized")
@@ -327,8 +344,19 @@ func migrateRemote(contracts renter.ContractSet, metaPath string) error {
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	op := renterutil.MigrateRemote(contracts, m, c, currentHeight)
-	return trackMigrateFile(metaPath, op)
+	hosts := makeHostSet(contracts, c, currentHeight)
+	defer hosts.Close()
+
+	dir, name := filepath.Dir(metaPath), strings.TrimSuffix(filepath.Base(metaPath), ".usa")
+	fs := renterutil.NewFileSystem(dir, hosts)
+	defer fs.Close()
+	pf, err := fs.Open(name)
+	if err != nil {
+		return err
+	}
+
+	migrator := renterutil.NewMigrator(hosts)
+	return trackMigrate(migrator, metaPath, pf)
 }
 
 func migrateDirRemote(contracts renter.ContractSet, metaDir string) error {
@@ -340,7 +368,32 @@ func migrateDirRemote(contracts renter.ContractSet, metaDir string) error {
 	if err != nil {
 		return errors.Wrap(err, "could not determine current height")
 	}
-	fileIter := renterutil.NewRecursiveMigrateDirIter(metaDir)
-	op := renterutil.MigrateDirRemote(contracts, fileIter, c, currentHeight)
-	return trackMigrateDir(op)
+	hosts := makeHostSet(contracts, c, currentHeight)
+	defer hosts.Close()
+
+	fs := renterutil.NewFileSystem(metaDir, hosts)
+	defer fs.Close()
+	migrator := renterutil.NewMigrator(hosts)
+
+	err = filepath.Walk(metaDir, func(metaPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		} else if info.IsDir() {
+			return nil
+		}
+		fsPath, _ := filepath.Rel(metaDir, metaPath)
+		pf, err := fs.Open(strings.TrimSuffix(fsPath, ".usa"))
+		if err != nil {
+			return errors.Wrap(err, "could not open metafile for reading")
+		}
+		defer pf.Close()
+		return trackMigrate(migrator, metaPath, pf)
+	})
+	if err != nil {
+		return err
+	}
+	if err := migrator.Flush(); err != nil {
+		return err
+	}
+	return nil
 }

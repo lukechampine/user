@@ -90,13 +90,10 @@ this operation is not free.
 Migrates sector data from the metafile's current set of hosts to a new set.
 There are three migration strategies, specified by mutually-exclusive flags.
 `
-	mFileUsage = `Erasure-encode the original file on disk. This is the fastest and
-    cheapest option, but it requires a local copy of the file.`
+	mLocalUsage = `Erasure-encode the original file on disk.`
 
-	mRemoteUsage = `Download the file from existing hosts and erasure-encode it. This is
-    the slowest and most expensive option, but it doesn't require a local
-    copy of the file, and it can be performed even if the "old" hosts are
-    offline.`
+	mRemoteUsage = `Download the file from existing hosts and erasure-encode it.
+(The file will not be stored on disk at any point.)`
 
 	infoUsage = `Usage:
     user info contract
@@ -179,7 +176,7 @@ func main() {
 	downloadCmd := flagg.New("download", downloadUsage)
 	checkupCmd := flagg.New("checkup", checkupUsage)
 	migrateCmd := flagg.New("migrate", migrateUsage)
-	mFile := migrateCmd.String("file", "", mFileUsage)
+	mLocal := migrateCmd.String("local", "", mLocalUsage)
 	mRemote := migrateCmd.Bool("remote", false, mRemoteUsage)
 	infoCmd := flagg.New("info", infoUsage)
 	serveCmd := flagg.New("serve", serveUsage)
@@ -272,15 +269,15 @@ Define min_shards in your config file or supply the -m flag.`)
 		isDir := statErr == nil && stat.IsDir()
 		var err error
 		switch {
-		case *mFile == "" && !*mRemote:
+		case *mLocal == "" && !*mRemote:
 			log.Fatalln("No migration strategy specified (see user migrate --help).")
-		case *mFile != "" && !isDir:
-			f, ferr := os.Open(*mFile)
+		case *mLocal != "" && !isDir:
+			f, ferr := os.Open(*mLocal)
 			check("Could not open file:", ferr)
-			err = migrateFile(f, getContracts(), meta)
+			err = migrateLocal(f, getContracts(), meta)
 			f.Close()
-		case *mFile != "" && isDir:
-			err = migrateDirFile(*mFile, getContracts(), meta)
+		case *mLocal != "" && isDir:
+			err = migrateDirLocal(*mLocal, getContracts(), meta)
 		case *mRemote && !isDir:
 			err = migrateRemote(getContracts(), meta)
 		case *mRemote && isDir:

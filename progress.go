@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh/terminal"
 	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/renterutil"
@@ -83,7 +84,7 @@ func (sw syncWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func trackUpload(pf *renterutil.PseudoFile, f *os.File) error {
+func trackUpload(pf *renterutil.PseudoFile, f *os.File, sync bool) error {
 	stat, err := f.Stat()
 	if err != nil {
 		return err
@@ -98,10 +99,15 @@ func trackUpload(pf *renterutil.PseudoFile, f *os.File) error {
 		return nil
 	}
 
+	var w io.Writer = pf
+	if sync {
+		w = syncWriter{pf}
+	}
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGPIPE)
 	tw := &trackWriter{
-		w:       syncWriter{pf},
+		w:       w,
 		name:    f.Name(),
 		off:     pstat.Size(),
 		total:   stat.Size(),
@@ -121,73 +127,60 @@ func trackUpload(pf *renterutil.PseudoFile, f *os.File) error {
 	return err
 }
 
-func trackMigrateFile(filename string, op *renterutil.Operation) error {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGPIPE)
-
-	migrateStart := time.Now()
-	for {
-		select {
-		case u, ok := <-op.Updates():
-			if !ok {
-				fmt.Println()
-				return op.Err()
-			}
-			switch u := u.(type) {
-			case renterutil.TransferProgressUpdate:
-				printOperationProgress(filename, u, time.Since(migrateStart))
-			}
-		case <-sigChan:
-			fmt.Println("\rStopping...")
-			op.Cancel()
-			for range op.Updates() {
-			}
-			return nil
-		}
-	}
+type trackReader struct {
+	r                io.Reader
+	name             string
+	off, xfer, total int64
+	start            time.Time
+	sigChan          <-chan os.Signal
 }
 
-func trackMigrateDir(op *renterutil.Operation) error {
+func (tr *trackReader) Read(p []byte) (int, error) {
+	// check for cancellation
+	select {
+	case <-tr.sigChan:
+		return 0, context.Canceled
+	default:
+	}
+	n, err := tr.r.Read(p)
+	tr.xfer += int64(n)
+	printSimpleProgress(tr.name, tr.off, tr.xfer, tr.total, time.Since(tr.start))
+	return n, err
+}
+
+func trackMigrate(migrator *renterutil.Migrator, metaPath string, src io.Reader) error {
+	m, err := renter.ReadMetaFile(metaPath)
+	if err != nil {
+		return errors.Wrap(err, "could not load metafile")
+	}
+	if !migrator.NeedsMigrate(m) {
+		printAlreadyFinished(metaPath, m.Filesize)
+		fmt.Println()
+		return nil
+	}
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGPIPE)
-
-	var filename string
-	var migrateStart time.Time
-	for {
-		select {
-		case u, ok := <-op.Updates():
-			if !ok {
-				return op.Err()
-			}
-			switch u := u.(type) {
-			case renterutil.DirQueueUpdate:
-				if filename != "" {
-					fmt.Println()
-				}
-				filename = u.Filename
-				migrateStart = time.Now()
-				p := renterutil.TransferProgressUpdate{
-					Total:       u.Filesize,
-					Transferred: 0,
-				}
-				printOperationProgress(filename, p, time.Since(migrateStart))
-			case renterutil.TransferProgressUpdate:
-				printOperationProgress(filename, u, time.Since(migrateStart))
-			case renterutil.DirSkipUpdate:
-				fmt.Printf("Skip %v: %v\n", u.Filename, u.Err)
-				filename = ""
-			}
-		case <-sigChan:
-			fmt.Println("\nStopping...")
-			op.Cancel()
-			for range op.Updates() {
-			}
-			if op.Err() != renterutil.ErrCanceled {
-				return op.Err()
-			}
-			return nil
-		}
+	tr := &trackReader{
+		r:       src,
+		name:    metaPath,
+		off:     0,
+		total:   m.Filesize,
+		start:   time.Now(),
+		sigChan: sigChan,
 	}
+	err = migrator.AddFile(m, tr, func(newM *renter.MetaFile) error {
+		printSimpleProgress(tr.name, tr.off, tr.total, tr.total, time.Since(tr.start))
+		return renter.WriteMetaFile(metaPath, newM)
+	})
+	if err == context.Canceled {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	err = migrator.Flush()
+	fmt.Println()
+	return err
 }
 
 // progress bar helpers
@@ -240,8 +233,4 @@ func printAlreadyFinished(filename string, total int64) {
 	copy(buf, []rune(name))
 	copy(buf[len(buf)-len(metrics):], []rune(metrics))
 	fmt.Printf("\r%s", string(buf))
-}
-
-func printOperationProgress(filename string, u renterutil.TransferProgressUpdate, elapsed time.Duration) {
-	printSimpleProgress(filename, u.Start, u.Transferred, u.Total, elapsed)
 }
