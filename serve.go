@@ -7,18 +7,11 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/pkg/errors"
-	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/renterutil"
 )
 
-func serve(contracts renter.ContractSet, metaDir, addr string) error {
-	c := makeSHARDClient()
-	currentHeight, err := c.ChainHeight()
-	if err != nil {
-		return errors.Wrap(err, "could not determine current height")
-	}
-	pfs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, c, currentHeight))
+func serve(hosts *renterutil.HostSet, metaDir, addr string) error {
+	pfs := renterutil.NewFileSystem(metaDir, hosts)
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: http.FileServer(&httpFS{pfs}),

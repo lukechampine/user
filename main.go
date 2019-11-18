@@ -4,13 +4,15 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"strings"
 	"syscall"
 
 	"github.com/pkg/errors"
 	"gitlab.com/NebulousLabs/Sia/build"
+	"gitlab.com/NebulousLabs/Sia/modules"
+	"gitlab.com/NebulousLabs/Sia/types"
 	"lukechampine.com/flagg"
 	"lukechampine.com/muse"
+	"lukechampine.com/us/hostdb"
 	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/renterutil"
 )
@@ -134,14 +136,24 @@ func check(ctx string, err error) {
 	}
 }
 
-func makeSHARDClient() *renterutil.SHARDClient {
-	if config.SHARDAddr == "" {
-		log.Fatal("Could not connect to SHARD server: no SHARD server specified")
+func getCurrentHeight() (types.BlockHeight, error) {
+	if config.MuseAddr == "" {
+		log.Fatal("Could not get contracts: no muse server specified")
 	}
-	return renterutil.NewSHARDClient(config.SHARDAddr)
+	return renterutil.NewSHARDClient(config.MuseAddr + "/shard").ChainHeight()
 }
 
-func getContracts() renter.ContractSet {
+type mapHKR map[hostdb.HostPublicKey]modules.NetAddress
+
+func (m mapHKR) ResolveHostKey(hpk hostdb.HostPublicKey) (modules.NetAddress, error) {
+	addr, ok := m[hpk]
+	if !ok {
+		return "", errors.New("no record of that host")
+	}
+	return addr, nil
+}
+
+func getContracts() (renter.ContractSet, renter.HostKeyResolver) {
 	if config.MuseAddr == "" {
 		log.Fatal("Could not get contracts: no muse server specified")
 	}
@@ -149,14 +161,23 @@ func getContracts() renter.ContractSet {
 	contracts, err := c.Contracts()
 	check("Could not get contracts:", err)
 	set := make(renter.ContractSet, len(contracts))
+	hkr := make(mapHKR, len(contracts))
 	for _, c := range contracts {
-		set[c.HostKey] = renter.Contract{
-			HostKey: c.HostKey,
-			ID:      c.ID,
-			Key:     c.RenterKey,
-		}
+		set[c.HostKey] = c.Contract
+		hkr[c.HostKey] = c.HostAddress
 	}
-	return set
+	return set, hkr
+}
+
+func makeHostSet() *renterutil.HostSet {
+	contracts, hkr := getContracts()
+	currentHeight, err := getCurrentHeight()
+	check("Could not get current height:", err)
+	hs := renterutil.NewHostSet(hkr, currentHeight)
+	for _, c := range contracts {
+		hs.AddHost(c)
+	}
+	return hs
 }
 
 func main() {
@@ -222,11 +243,11 @@ Define min_shards in your config file or supply the -m flag.`)
 		f, meta := parseUpload(args, uploadCmd)
 		var err error
 		if stat, statErr := f.Stat(); statErr == nil && stat.IsDir() {
-			err = uploadmetadir(f.Name(), meta, getContracts(), config.MinShards)
+			err = uploadmetadir(f.Name(), meta, makeHostSet(), config.MinShards)
 		} else if _, statErr := os.Stat(meta); !os.IsNotExist(statErr) {
-			err = resumeuploadmetafile(f, getContracts(), meta)
+			err = resumeuploadmetafile(f, makeHostSet(), meta)
 		} else {
-			err = uploadmetafile(f, config.MinShards, getContracts(), meta)
+			err = uploadmetafile(f, config.MinShards, makeHostSet(), meta)
 		}
 		f.Close()
 		check("Upload failed:", err)
@@ -235,9 +256,9 @@ Define min_shards in your config file or supply the -m flag.`)
 		f, meta := parseDownload(args, downloadCmd)
 		var err error
 		if stat, statErr := f.Stat(); statErr == nil && stat.IsDir() {
-			err = downloadmetadir(f.Name(), getContracts(), meta)
+			err = downloadmetadir(f.Name(), makeHostSet(), meta)
 		} else if f == os.Stdout {
-			err = downloadmetastream(f, getContracts(), meta)
+			err = downloadmetastream(f, makeHostSet(), meta)
 			// if the pipe we're writing to breaks, it was probably
 			// intentional (e.g. 'head' exiting after reading 10 lines), so
 			// suppress the error.
@@ -247,7 +268,7 @@ Define min_shards in your config file or supply the -m flag.`)
 				}
 			}
 		} else {
-			err = downloadmetafile(f, getContracts(), meta)
+			err = downloadmetafile(f, makeHostSet(), meta)
 			f.Close()
 		}
 		check("Download failed:", err)
@@ -256,7 +277,8 @@ Define min_shards in your config file or supply the -m flag.`)
 		path := parseCheckup(args, checkupCmd)
 		_, err := renter.ReadMetaIndex(path)
 		check("Could not load metafile:", err)
-		err = checkupMeta(getContracts(), path)
+		contracts, hkr := getContracts()
+		err = checkupMeta(contracts, hkr, path)
 		check("Checkup failed:", err)
 
 	case migrateCmd:
@@ -274,14 +296,14 @@ Define min_shards in your config file or supply the -m flag.`)
 		case *mLocal != "" && !isDir:
 			f, ferr := os.Open(*mLocal)
 			check("Could not open file:", ferr)
-			err = migrateLocal(f, getContracts(), meta)
+			err = migrateLocal(f, makeHostSet(), meta)
 			f.Close()
 		case *mLocal != "" && isDir:
-			err = migrateDirLocal(*mLocal, getContracts(), meta)
+			err = migrateDirLocal(*mLocal, makeHostSet(), meta)
 		case *mRemote && !isDir:
-			err = migrateRemote(getContracts(), meta)
+			err = migrateRemote(makeHostSet(), meta)
 		case *mRemote && isDir:
-			err = migrateDirRemote(getContracts(), meta)
+			err = migrateDirRemote(makeHostSet(), meta)
 		default:
 			log.Fatalln("Multiple migration strategies specified (see user migrate --help).")
 		}
@@ -301,7 +323,7 @@ Define min_shards in your config file or supply the -m flag.`)
 			serveCmd.Usage()
 			return
 		}
-		err := serve(getContracts(), args[0], *sAddr)
+		err := serve(makeHostSet(), args[0], *sAddr)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -311,7 +333,7 @@ Define min_shards in your config file or supply the -m flag.`)
 			mountCmd.Usage()
 			return
 		}
-		err := mount(getContracts(), args[0], args[1], config.MinShards)
+		err := mount(makeHostSet(), args[0], args[1], config.MinShards)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -321,7 +343,8 @@ Define min_shards in your config file or supply the -m flag.`)
 			gcCmd.Usage()
 			return
 		}
-		err := deleteUnreferencedSectors(getContracts(), args[0])
+		contracts, hkr := getContracts()
+		err := deleteUnreferencedSectors(contracts, hkr, args[0])
 		check("Garbage collection failed:", err)
 	}
 }

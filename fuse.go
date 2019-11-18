@@ -12,17 +12,11 @@ import (
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/hanwen/go-fuse/fuse/pathfs"
 	"github.com/pkg/errors"
-	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/renterutil"
 )
 
-func mount(contracts renter.ContractSet, metaDir, mountDir string, minShards int) error {
-	c := makeSHARDClient()
-	currentHeight, err := c.ChainHeight()
-	if err != nil {
-		return err
-	}
-	pfs := renterutil.NewFileSystem(metaDir, makeHostSet(contracts, c, currentHeight))
+func mount(hosts *renterutil.HostSet, metaDir, mountDir string, minShards int) error {
+	pfs := renterutil.NewFileSystem(metaDir, hosts)
 	nfs := pathfs.NewPathNodeFs(fileSystem(pfs, minShards), nil)
 	server, _, err := nodefs.MountRoot(mountDir, nfs.Root(), nil)
 	if err != nil {

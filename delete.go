@@ -12,13 +12,11 @@ import (
 	"lukechampine.com/us/hostdb"
 	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/proto"
-	"lukechampine.com/us/renter/renterutil"
 	"lukechampine.com/us/renterhost"
 )
 
-func deleteUnreferencedSectors(contracts renter.ContractSet, metaDir string) error {
-	c := makeSHARDClient()
-	currentHeight, err := c.ChainHeight()
+func deleteUnreferencedSectors(contracts renter.ContractSet, hkr renter.HostKeyResolver, metaDir string) error {
+	currentHeight, err := getCurrentHeight()
 	if err != nil {
 		return errors.Wrap(err, "could not get current height")
 	}
@@ -27,11 +25,11 @@ func deleteUnreferencedSectors(contracts renter.ContractSet, metaDir string) err
 	hosts := make(map[hostdb.HostPublicKey]map[crypto.Hash]uint64)
 	for _, contract := range contracts {
 		err := func() error {
-			hostIP, err := c.ResolveHostKey(contract.HostKey)
+			hostIP, err := hkr.ResolveHostKey(contract.HostKey)
 			if err != nil {
 				return err
 			}
-			s, err := proto.NewSession(hostIP, contract.HostKey, contract.ID, contract.Key, currentHeight)
+			s, err := proto.NewSession(hostIP, contract.HostKey, contract.ID, contract.RenterKey, currentHeight)
 			if err != nil {
 				return err
 			}
@@ -116,7 +114,7 @@ Press ENTER to proceed, or Ctrl-C to abort.
 			fmt.Printf("%v: Nothing to delete", contract.HostKey.ShortKey())
 			continue
 		}
-		err := deleteFromHost(c, contract, roots)
+		err := deleteFromHost(hkr, contract, roots)
 		if err != nil {
 			fmt.Printf("%v: Deletion failed: %v\n", contract.HostKey.ShortKey(), err)
 		} else {
@@ -126,17 +124,17 @@ Press ENTER to proceed, or Ctrl-C to abort.
 	return nil
 }
 
-func deleteFromHost(c *renterutil.SHARDClient, contract renter.Contract, roots map[crypto.Hash]uint64) error {
+func deleteFromHost(hkr renter.HostKeyResolver, contract renter.Contract, roots map[crypto.Hash]uint64) error {
 	// connect to host
-	hostIP, err := c.ResolveHostKey(contract.HostKey)
+	hostIP, err := hkr.ResolveHostKey(contract.HostKey)
 	if err != nil {
 		return err
 	}
-	currentHeight, err := c.ChainHeight()
+	currentHeight, err := getCurrentHeight()
 	if err != nil {
 		return err
 	}
-	s, err := proto.NewSession(hostIP, contract.HostKey, contract.ID, contract.Key, currentHeight)
+	s, err := proto.NewSession(hostIP, contract.HostKey, contract.ID, contract.RenterKey, currentHeight)
 	if err != nil {
 		return err
 	}
