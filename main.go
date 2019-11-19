@@ -333,6 +333,10 @@ Define min_shards in your config file or supply the -m flag.`)
 			mountCmd.Usage()
 			return
 		}
+		if config.MinShards == 0 {
+			log.Fatalln(`Upload failed: minimum number of shards not specified.
+Define min_shards in your config file or supply the -m flag.`)
+		}
 		err := mount(makeHostSet(), args[0], args[1], config.MinShards)
 		if err != nil {
 			log.Fatal(err)
