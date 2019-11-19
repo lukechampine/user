@@ -80,16 +80,20 @@ func uploadmetadir(dir, metaDir string, hosts *renterutil.HostSet, minShards int
 		if info.IsDir() || err != nil {
 			return fs.MkdirAll(fsPath, 0700)
 		}
-		pf, err := fs.Create(fsPath, minShards)
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
 		f, err := os.Open(path)
 		if err != nil {
 			return err
 		}
 		defer f.Close()
+		stat, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		pf, err := fs.OpenFile(fsPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, stat.Mode(), minShards)
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
 		return trackUpload(pf, f, false)
 	})
 	if err != nil {
