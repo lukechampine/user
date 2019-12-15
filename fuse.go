@@ -38,8 +38,10 @@ func mount(hosts *renterutil.HostSet, metaDir, mountDir string, minShards int) e
 func errToStatus(op, name string, err error) fuse.Status {
 	if err == nil {
 		return fuse.OK
-	} else if os.IsNotExist(errors.Cause(err)) {
+	} else if cause := errors.Cause(err); os.IsNotExist(cause) {
 		return fuse.ENOENT
+	} else if cause == renterutil.ErrInvalidFileDescriptor {
+		return fuse.EINVAL
 	}
 	log.Printf("%v %v: %v", op, name, err)
 	return fuse.EIO
