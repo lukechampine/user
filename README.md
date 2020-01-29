@@ -22,11 +22,9 @@ First you'll need to install `user` by checking out this repository and running
 `make`. Run `user version` to confirm that it's installed.
 
 `user` cannot operate on its own; it needs contracts, which it gets from a
-[`muse`](https://github.com/lukechampine/muse) server. It also needs to resolve
-host addresses and to learn the current block height; these are handled by a
-[`shard`](https://github.com/lukechampine/shard) server. You can specify the
-addresses of these servers using CLI flags, but it's more convenient to record
-them in your [config file](#configuration).
+[`muse`](https://github.com/lukechampine/muse) server. You can specify the
+address of this server using a CLI flag, but it's more convenient to add it to
+your [config file](#configuration).
 
 
 ## Uploading and Downloading Files
@@ -120,8 +118,8 @@ use them to reconstruct the third shard by running:
 $ user migrate -remote [metafile]
 ```
 
-Note that a remote migration, the file is not actually downloaded to disk; it is
-processed piecewise in RAM. You don't need any free disk space to perform a
+Note that in a remote migration, the file is not actually downloaded to disk; it
+is processed piecewise in RAM. You don't need any free disk space to perform a
 migration.
 
 Like uploads and downloads, migrations can be resumed if interrupted, and can

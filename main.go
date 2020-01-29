@@ -131,7 +131,7 @@ func getCurrentHeight() (types.BlockHeight, error) {
 	if config.MuseAddr == "" {
 		log.Fatal("Could not get contracts: no muse server specified")
 	}
-	return renterutil.NewSHARDClient(config.MuseAddr + "/shard").ChainHeight()
+	return muse.NewClient(config.MuseAddr).SHARD().ChainHeight()
 }
 
 type mapHKR map[hostdb.HostPublicKey]modules.NetAddress
@@ -149,7 +149,7 @@ func getContracts() (renter.ContractSet, renter.HostKeyResolver) {
 		log.Fatal("Could not get contracts: no muse server specified")
 	}
 	c := muse.NewClient(config.MuseAddr)
-	contracts, err := c.Contracts()
+	contracts, err := c.Contracts(config.HostSet)
 	check("Could not get contracts:", err)
 	set := make(renter.ContractSet, len(contracts))
 	hkr := make(mapHKR, len(contracts))
@@ -181,6 +181,7 @@ func main() {
 
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
+	rootCmd.StringVar(&config.MuseAddr, "muse", config.MuseAddr, "host:port of muse server")
 
 	versionCmd := flagg.New("version", versionUsage)
 	uploadCmd := flagg.New("upload", uploadUsage)

@@ -10,6 +10,6 @@ require (
 	golang.org/x/crypto v0.0.0-20191105034135-c7e5f84aec59
 	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.0.1
-	lukechampine.com/muse v0.1.0
+	lukechampine.com/muse v0.1.1
 	lukechampine.com/us v0.14.0
 )
