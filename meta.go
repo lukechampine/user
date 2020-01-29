@@ -231,24 +231,6 @@ func downloadmetadir(dir string, hosts *renterutil.HostSet, metaDir string) erro
 	return fs.Close()
 }
 
-func checkupMeta(contracts renter.ContractSet, hkr renter.HostKeyResolver, metaPath string) error {
-	m, err := renter.ReadMetaFile(metaPath)
-	if err != nil {
-		return errors.Wrap(err, "could not load metafile")
-	}
-
-	for r := range renterutil.Checkup(contracts, m, hkr) {
-		if r.Error != nil {
-			fmt.Printf("FAIL Host %v:\n\t%v\n", r.Host.ShortKey(), r.Error)
-		} else {
-			fmt.Printf("OK   Host %v: Latency %0.3fms, Bandwidth %0.3f Mbps\n",
-				r.Host.ShortKey(), r.Latency.Seconds()*1000, r.Bandwidth)
-		}
-	}
-
-	return nil
-}
-
 func migrateLocal(f *os.File, hosts *renterutil.HostSet, metaPath string) error {
 	defer hosts.Close()
 	migrator := renterutil.NewMigrator(hosts)

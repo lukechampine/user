@@ -30,7 +30,6 @@ var (
 Actions:
     upload          upload a file
     download        download a file
-    checkup         check the health of a file
     migrate         migrate a file to different hosts
     info            display info about a file
 `
@@ -75,14 +74,6 @@ For example, 'user download foo.txt.usa' will download to 'foo.txt'.
 However, if the destination file is unspecified and stdout is redirected (e.g.
 via a pipe), the downloaded file will be written to stdout. For example,
 'user download foo.txt.usa | cat' will display the file in the terminal.
-`
-	checkupUsage = `Usage:
-    user checkup metafile
-    user checkup contract
-
-Verifies that a randomly-selected sector of the specified metafile or contract
-is retrievable, and reports the resulting metrics for each host. Note that
-this operation is not free.
 `
 
 	migrateUsage = `Usage:
@@ -195,7 +186,6 @@ func main() {
 	uploadCmd := flagg.New("upload", uploadUsage)
 	uploadCmd.IntVar(&config.MinShards, "m", config.MinShards, "minimum number of shards required to download file")
 	downloadCmd := flagg.New("download", downloadUsage)
-	checkupCmd := flagg.New("checkup", checkupUsage)
 	migrateCmd := flagg.New("migrate", migrateUsage)
 	mLocal := migrateCmd.String("local", "", mLocalUsage)
 	mRemote := migrateCmd.Bool("remote", false, mRemoteUsage)
@@ -213,7 +203,6 @@ func main() {
 			{Cmd: versionCmd},
 			{Cmd: uploadCmd},
 			{Cmd: downloadCmd},
-			{Cmd: checkupCmd},
 			{Cmd: migrateCmd},
 			{Cmd: infoCmd},
 			{Cmd: serveCmd},
@@ -272,14 +261,6 @@ Define min_shards in your config file or supply the -m flag.`)
 			f.Close()
 		}
 		check("Download failed:", err)
-
-	case checkupCmd:
-		path := parseCheckup(args, checkupCmd)
-		_, err := renter.ReadMetaIndex(path)
-		check("Could not load metafile:", err)
-		contracts, hkr := getContracts()
-		err = checkupMeta(contracts, hkr, path)
-		check("Checkup failed:", err)
 
 	case migrateCmd:
 		if len(args) == 0 {
