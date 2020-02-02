@@ -12,6 +12,7 @@ import (
 	"gitlab.com/NebulousLabs/Sia/types"
 	"lukechampine.com/flagg"
 	"lukechampine.com/muse"
+	"lukechampine.com/shard"
 	"lukechampine.com/us/hostdb"
 	"lukechampine.com/us/renter"
 	"lukechampine.com/us/renter/renterutil"
@@ -127,11 +128,15 @@ func check(ctx string, err error) {
 	}
 }
 
-func getCurrentHeight() (types.BlockHeight, error) {
-	if config.MuseAddr == "" {
-		log.Fatal("Could not get contracts: no muse server specified")
+func getSHARD() *shard.Client {
+	if config.SHARDAddr != "" {
+		return shard.NewClient(config.SHARDAddr)
 	}
-	return muse.NewClient(config.MuseAddr).SHARD().ChainHeight()
+	return muse.NewClient(config.MuseAddr).SHARD()
+}
+
+func getCurrentHeight() (types.BlockHeight, error) {
+	return getSHARD().ChainHeight()
 }
 
 type mapHKR map[hostdb.HostPublicKey]modules.NetAddress
