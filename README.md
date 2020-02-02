@@ -136,8 +136,8 @@ also be applied to directories.
 muse_addr = "muse.lukechampine.com/<my-muse-id>"
 
 # API address of SHARD server.
-# REQUIRED.
-muse_addr = "shard.lukechampine.com"
+# OPTIONAL. If not provided, the muse server will be used instead.
+shard_addr = "shard.lukechampine.com"
 
 # Minimum number of hosts required to download a file. Also controls
 # file redundancy: uploading to 40 hosts with min_shards = 10 results
