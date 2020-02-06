@@ -116,5 +116,7 @@ lukechampine.com/shard v0.3.0/go.mod h1:fKaCLNr8vntkkA6puJr01M6pcl2wWJVIcGbe5Jh4
 lukechampine.com/us v0.11.1/go.mod h1:4zaGktg6JkuSmMVZe7F2ljzHTM3YlqVjOOPpRfXJgC8=
 lukechampine.com/us v0.14.0 h1:M2ySM5Pm5MYBODQ5hg6lI4iSLX3h7srvMfEHrl9h90Q=
 lukechampine.com/us v0.14.0/go.mod h1:4zaGktg6JkuSmMVZe7F2ljzHTM3YlqVjOOPpRfXJgC8=
+lukechampine.com/us v0.14.2 h1:omNLrwIcf0uEr2aJD7tQIC11GRzhIsWHIzvI3dSjwmg=
+lukechampine.com/us v0.14.2/go.mod h1:4zaGktg6JkuSmMVZe7F2ljzHTM3YlqVjOOPpRfXJgC8=
 lukechampine.com/walrus v0.6.0 h1:p2qklxucqvZU21DzgAieQes0aYdQ+C9rb6TGsGVExpM=
 lukechampine.com/walrus v0.6.0/go.mod h1:1+7BZNViJzbU9PMZ6+mYP7bPs7URfPxfAtJGQCgzEuw=
