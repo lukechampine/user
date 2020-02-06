@@ -30,5 +30,8 @@ func loadConfig() error {
 	if err != nil {
 		return err
 	}
+	if config.HostSet == "" {
+		config.HostSet = "default"
+	}
 	return nil
 }
