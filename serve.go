@@ -40,7 +40,7 @@ type bufferedFile struct {
 
 func (f *bufferedFile) Read(p []byte) (int, error) {
 	if f.br == nil {
-		f.br = bufio.NewReaderSize(f.PseudoFile, 1<<20) // 1 MiB
+		f.br = bufio.NewReaderSize(f.PseudoFile, 1<<22) // 4 MiB
 	}
 	return f.br.Read(p)
 }

@@ -28,7 +28,7 @@ func mount(hosts *renterutil.HostSet, metaDir, mountDir string, minShards int) e
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 	<-sigChan
-	log.Println("Unmounting...")
+	log.Println("Unmounting... (cached data is being uploaded, don't kill this process!)")
 	if err := pfs.Close(); err != nil {
 		log.Println("Error during close:", err)
 	}

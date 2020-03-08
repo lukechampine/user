@@ -11,7 +11,7 @@ import (
 var config struct {
 	MuseAddr  string `toml:"muse_addr"`
 	SHARDAddr string `toml:"shard_addr"`
-	HostSet   string `toml:"hostset"`
+	HostSet   string `toml:"host_set"`
 	MinShards int    `toml:"min_shards"`
 }
 
