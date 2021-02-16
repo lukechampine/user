@@ -149,17 +149,17 @@ func (m mapHKR) ResolveHostKey(hpk hostdb.HostPublicKey) (modules.NetAddress, er
 	return addr, nil
 }
 
-func getContracts() (renter.ContractSet, renter.HostKeyResolver) {
+func getContracts() ([]renter.Contract, renter.HostKeyResolver) {
 	if config.MuseAddr == "" {
 		log.Fatal("Could not get contracts: no muse server specified")
 	}
 	c := muse.NewClient(config.MuseAddr)
 	contracts, err := c.Contracts(config.HostSet)
 	check("Could not get contracts:", err)
-	set := make(renter.ContractSet, len(contracts))
+	set := make([]renter.Contract, len(contracts))
 	hkr := make(mapHKR, len(contracts))
-	for _, c := range contracts {
-		set[c.HostKey] = c.Contract
+	for i, c := range contracts {
+		set[i] = c.Contract
 		hkr[c.HostKey] = c.HostAddress
 	}
 	return set, hkr
