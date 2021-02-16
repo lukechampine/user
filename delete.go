@@ -15,7 +15,7 @@ import (
 	"lukechampine.com/us/renterhost"
 )
 
-func deleteUnreferencedSectors(contracts renter.ContractSet, hkr renter.HostKeyResolver, metaDir string) error {
+func deleteUnreferencedSectors(contracts []renter.Contract, hkr renter.HostKeyResolver, metaDir string) error {
 	currentHeight, err := getCurrentHeight()
 	if err != nil {
 		return errors.Wrap(err, "could not get current height")
